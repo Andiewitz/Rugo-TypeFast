@@ -25,11 +25,10 @@ npm run test:int:user    # PostgreSQL-backed HTTP integration tests
 npm run test:user        # all service unit tests
 ```
 
-Integration tests require a migrated database:
+Integration tests need PostgreSQL running. The harness creates, migrates, and truncates its own dedicated `_test` database, so no migration step is needed:
 
 ```bash
 npm run db:up
-npm run migrate:up
 ```
 
 Document tooling decisions and conventions in [`/docs/tests-docs`](../docs/tests-docs/).
