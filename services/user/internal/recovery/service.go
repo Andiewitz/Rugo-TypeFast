@@ -31,15 +31,23 @@ type Store interface {
 	ResetPassword(ctx context.Context, tokenHash []byte, passwordHash string) (identity.User, error)
 }
 
+// TokenRevoker marks a cut-off so access tokens issued before it stop working.
+// A reset cannot recall a signed token, so the marker is what forces the
+// attacker's copy out on the replica that handled the reset.
+type TokenRevoker interface {
+	MarkIssuedBefore(userID uuid.UUID, before time.Time)
+}
+
 type Service struct {
 	store        Store
 	publicAppURL string
 	audit        audit.Recorder
+	revoker      TokenRevoker
 	logger       *slog.Logger
 }
 
-func NewService(store Store, publicAppURL string, recorder audit.Recorder, logger *slog.Logger) *Service {
-	return &Service{store: store, publicAppURL: publicAppURL, audit: recorder, logger: logger}
+func NewService(store Store, publicAppURL string, recorder audit.Recorder, revoker TokenRevoker, logger *slog.Logger) *Service {
+	return &Service{store: store, publicAppURL: publicAppURL, audit: recorder, revoker: revoker, logger: logger}
 }
 
 func (s *Service) ForgotPassword(ctx context.Context, email, ip string) error {
@@ -92,6 +100,17 @@ func (s *Service) ResetPassword(ctx context.Context, rawToken, password, ip stri
 	if err != nil {
 		return err
 	}
+
+	// Storage stamps the same instant on revoked_before, so other replicas pick
+	// this up on their next refresh while this one enforces it immediately.
+	marker := user.UpdatedAt
+	if marker.IsZero() {
+		marker = time.Now().UTC()
+	}
+	if s.revoker != nil {
+		s.revoker.MarkIssuedBefore(user.ID, marker)
+	}
+
 	_ = s.audit.Record(ctx, audit.Event{
 		ActorID:   &user.ID,
 		SubjectID: &user.ID,

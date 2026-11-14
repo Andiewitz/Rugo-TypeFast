@@ -48,9 +48,11 @@ func (s *Store) ResetPassword(ctx context.Context, tokenHash []byte, passwordHas
 		return identity.User{}, err
 	}
 
+	// A reset is a forced sign-out: the marker stops access tokens issued before
+	// it, including one an attacker already holds, on every replica.
 	user, err := scanUser(tx.QueryRow(ctx, `
 		UPDATE users
-		SET password_hash = $2, updated_at = $3
+		SET password_hash = $2, updated_at = $3, revoked_before = $3
 		WHERE id = $1 AND deleted_at IS NULL
 		RETURNING `+userColumns,
 		userID, passwordHash, now,

@@ -3,6 +3,7 @@ package userint
 import (
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestRegistrationVerificationAccountAndRefresh(t *testing.T) {
@@ -122,7 +123,7 @@ func TestPasswordRecovery(t *testing.T) {
 	oldPassword := "old correct horse battery"
 	newPassword := "new correct horse battery"
 	h.registerAndVerify(t, email, oldPassword)
-	h.login(t, email, oldPassword)
+	oldTokens := h.login(t, email, oldPassword)
 	oldRefresh := h.refreshCookie(t)
 
 	forgot := h.request(t, http.MethodPost, "/v1/auth/password/forgot", map[string]string{"email": email}, "")
@@ -130,6 +131,10 @@ func TestPasswordRecovery(t *testing.T) {
 		t.Fatalf("forgot status = %d: %s", forgot.status, forgot.body)
 	}
 	resetToken := tokenFromMessage(t, h.latestEmailContaining(t, "Reset"))
+
+	// Cross into a later second so the reset marker lands strictly after the
+	// login that issued oldTokens; same-second tokens are deliberately allowed.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)) + 10*time.Millisecond)
 
 	reset := h.request(t, http.MethodPost, "/v1/auth/password/reset", map[string]string{
 		"token":    resetToken,
@@ -146,6 +151,16 @@ func TestPasswordRecovery(t *testing.T) {
 	newLogin := h.request(t, http.MethodPost, "/v1/auth/login", map[string]string{"email": email, "password": newPassword}, "")
 	if newLogin.status != http.StatusOK {
 		t.Fatalf("new password status = %d: %s", newLogin.status, newLogin.body)
+	}
+
+	stale := h.request(t, http.MethodGet, "/v1/account", nil, oldTokens.AccessToken)
+	if stale.status != http.StatusUnauthorized {
+		t.Fatalf("stale access token status = %d: %s", stale.status, stale.body)
+	}
+	var staleProblem problemPayload
+	decode(t, stale.body, &staleProblem)
+	if staleProblem.Code != "token_revoked" {
+		t.Fatalf("stale access token code = %q, want token_revoked", staleProblem.Code)
 	}
 
 	oldRefreshResult := h.refresh(t, oldRefresh)

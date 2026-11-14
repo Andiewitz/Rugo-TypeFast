@@ -233,7 +233,7 @@ func newHarness(t *testing.T) *harness {
 	registerService := register.NewService(store, cfg.PublicAppURL, store, logger)
 	loginService := login.NewService(store, sessionService, store, logger)
 	accountService := account.NewService(store, store, logger)
-	recoveryService := recovery.NewService(store, cfg.PublicAppURL, store, logger)
+	recoveryService := recovery.NewService(store, cfg.PublicAppURL, store, revocations, logger)
 	authorizationService := authorization.NewService(store, store, revocations, logger)
 
 	metrics := observability.NewPrometheus()

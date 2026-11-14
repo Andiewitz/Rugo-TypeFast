@@ -99,7 +99,7 @@ func run() error {
 	registerService := register.NewService(store, cfg.PublicAppURL, store, logger)
 	loginService := login.NewService(store, sessionService, store, logger)
 	accountService := account.NewService(store, store, logger)
-	recoveryService := recovery.NewService(store, cfg.PublicAppURL, store, logger)
+	recoveryService := recovery.NewService(store, cfg.PublicAppURL, store, revocations, logger)
 	authorizationService := authorization.NewService(store, store, revocations, logger)
 
 	var sender mailer.Mailer = &mailer.Log{Logger: logger}

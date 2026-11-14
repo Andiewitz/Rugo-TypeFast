@@ -93,6 +93,18 @@ func (r *Registry) Revoke(userID uuid.UUID, before time.Time) {
 	r.revoked[userID] = Entry{UserID: userID, Before: before, Suspended: true}
 }
 
+// MarkIssuedBefore records a cut-off locally without suspending the account, so
+// tokens issued at or before before are refused while fresh ones are accepted.
+// It is used when a password reset forces every existing session out.
+func (r *Registry) MarkIssuedBefore(userID uuid.UUID, before time.Time) {
+	if before.IsZero() {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.revoked[userID] = Entry{UserID: userID, Before: before}
+}
+
 // Restore lifts a suspension locally, keeping the marker so tokens issued at or
 // before it stay refused. An account that was never banned is dropped from the
 // snapshot entirely.
