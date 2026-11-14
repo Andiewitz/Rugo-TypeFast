@@ -57,8 +57,8 @@ The Docker image contains all four binaries under `/app`; the default entrypoint
 - CORS allows only `APP_ORIGIN` with credentials.
 - State-changing requests with an `Origin` header must match `APP_ORIGIN`.
 - JSON bodies are capped at 1 MiB and must not contain unknown fields.
-- Rate limits are applied per client IP and path for auth endpoints.
-- Security headers include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and restrictive permissions policy.
+- Rate limits are applied per client IP and path for auth endpoints; login is additionally throttled per account, so one host cannot spray a single address.
+- Security headers include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and restrictive permissions policy. `Strict-Transport-Security` is added whenever `COOKIE_SECURE` marks an HTTPS deployment.
 
 ## Authentication flows
 
@@ -136,7 +136,7 @@ Content-Type: application/json
 {"user_id":"<uuid>","permission":"users.read"}
 ```
 
-The endpoint is disabled when `INTERNAL_SERVICE_TOKEN` is empty and returns `401` for a wrong token.
+The endpoint is disabled when `INTERNAL_SERVICE_TOKEN` is empty and returns `401` for a wrong token. It is rate limited per client address, and production startup fails if the token still holds the value published in `.env.example`.
 
 ## Data and migrations
 
@@ -168,6 +168,8 @@ Cognito is the public identity provider. It proves who a user is but stores no a
 Registration and recovery handlers write email messages to `outbox_events` in the same transaction as state changes. The worker claims pending rows with `FOR UPDATE SKIP LOCKED`, sends through the configured mailer, and marks success or schedules retry with backoff.
 
 `MAILER=log` records only metadata and does not include message bodies. `MAILER=smtp` uses `SMTP_ADDR` and `MAIL_FROM`. Local Compose uses Mailpit at `localhost:8025` for inspection.
+
+Message bodies carry single-use verification and reset tokens, so `SMTP_TLS` controls whether the hop is protected: `starttls` requires the relay to upgrade and is the production default, `opportunistic` upgrades when the relay offers it, and `none` sends in clear text. Development defaults to `none` because the local Mailpit has no certificate; a clear-text relay must never carry those links.
 
 ## Observability
 
@@ -213,6 +215,7 @@ No tracing exporter is configured yet.
 | `MAILER` | `log` | `log` or `smtp` |
 | `SMTP_ADDR` | `localhost:1025` | SMTP server |
 | `MAIL_FROM` | `no-reply@kit.local` | Envelope sender |
+| `SMTP_TLS` | `none` in development, `starttls` in production | `starttls`, `opportunistic`, or `none`; `starttls` refuses a relay that cannot upgrade |
 | `INTERNAL_SERVICE_TOKEN` | empty | Enables internal authz endpoint |
 | `RATE_LIMIT_ENABLED` | `true` | In-memory rate limiting |
 | `REVOCATION_REFRESH_INTERVAL` | `5s` | How often replicas reload the revocation snapshot |
