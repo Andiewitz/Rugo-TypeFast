@@ -125,20 +125,30 @@ func TestLoginUnknownUserIsIndistinguishable(t *testing.T) {
 	}
 }
 
-func TestLoginRejectsInactiveAccount(t *testing.T) {
+func TestLoginRejectsInactiveAccounts(t *testing.T) {
 	t.Parallel()
 
-	user := activeUser(t, "a-long-enough-password")
-	user.Status = identity.StatusPending
-	store := &fakeStore{user: user}
-	issuer := &fakeIssuer{}
-	service, _ := newService(store, issuer)
+	for _, status := range []identity.Status{identity.StatusPending, identity.StatusSuspended, identity.StatusDeleted} {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
 
-	if _, _, err := service.Login(context.Background(), "user@example.com", "a-long-enough-password", "agent", ""); !apperr.IsKind(err, apperr.KindForbidden) {
-		t.Fatalf("expected forbidden, got %v", err)
-	}
-	if issuer.calls != 0 {
-		t.Fatal("session should not be issued")
+			user := activeUser(t, "a-long-enough-password")
+			user.Status = status
+			store := &fakeStore{user: user}
+			issuer := &fakeIssuer{}
+			service, _ := newService(store, issuer)
+
+			_, _, err := service.Login(context.Background(), "user@example.com", "a-long-enough-password", "agent", "")
+			if !apperr.IsKind(err, apperr.KindForbidden) {
+				t.Fatalf("expected forbidden, got %v", err)
+			}
+			if code := apperr.Code(err); code != "account_not_active" {
+				t.Fatalf("code = %q", code)
+			}
+			if issuer.calls != 0 {
+				t.Fatal("session should not be issued")
+			}
+		})
 	}
 }
 
