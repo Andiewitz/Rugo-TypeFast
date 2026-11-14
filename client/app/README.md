@@ -13,6 +13,8 @@ npm run dev:app
 
 The app runs at http://localhost:5173. The identity service runs separately on http://localhost:3001 via `npm run dev:user`, after `npm run db:up` and `npm run migrate:up`. Account screens are not part of the app yet.
 
+The product version comes from the root `package.json`, is injected at build time by `vite.config.ts`, and appears under **Settings → Build Version**.
+
 ## Layout
 
 - `src/pages/` - page-level orchestration

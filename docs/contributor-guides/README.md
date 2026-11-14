@@ -60,6 +60,22 @@ npm run test:int:user
 
 Never commit secrets, credentials, `.env`, `.secrets/`, or production data.
 
+## Versioning
+
+The product version is the `version` field in the root `package.json` and follows semantic versioning:
+
+- `x` (major) - a large or breaking update
+- `y` (minor) - a new feature
+- `z` (patch) - a bug fix or small correction
+
+The app injects that value at build time and shows it under **Settings → Build Version**, so a running build always says which release it came from. Bump the version in the same commit as the change it describes:
+
+```bash
+npm version minor --no-git-tag-version
+```
+
+Workspace packages such as `@kit/app` keep their own `private` versions; they are not the product version.
+
 ## Where to document work
 
 - Bug or regression: `docs/issues`
