@@ -21,6 +21,7 @@ import (
 	"typefast/services/user/internal/outbox"
 	"typefast/services/user/internal/recovery"
 	"typefast/services/user/internal/register"
+	"typefast/services/user/internal/retention"
 	"typefast/services/user/internal/revocation"
 	"typefast/services/user/internal/session"
 	"typefast/services/user/internal/storage/migrations"
@@ -114,6 +115,20 @@ func run() error {
 		Interval: time.Second,
 	}
 	go worker.Run(ctx)
+
+	// Expired tokens and sessions are dead the moment they expire, but nothing
+	// else ever removes them, so the sweep is what keeps those tables bounded.
+	if cfg.RetentionInterval > 0 {
+		sweeper := &retention.Sweeper{
+			Store:        store,
+			Logger:       logger,
+			Interval:     cfg.RetentionInterval,
+			OutboxWindow: cfg.RetentionOutboxWindow,
+		}
+		go sweeper.Run(ctx)
+	} else if cfg.Env == "production" {
+		logger.Warn("RETENTION_INTERVAL is 0; expired tokens, expired sessions, and delivered outbox rows will accumulate")
+	}
 
 	metrics := observability.NewPrometheus()
 	server := httpapi.New(

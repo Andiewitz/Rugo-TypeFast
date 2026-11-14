@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"testing"
+	"time"
 
 	"typefast/services/user/internal/config"
 )
@@ -15,6 +16,7 @@ var envKeys = []string{
 	"ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "COOKIE_SECURE", "COOKIE_DOMAIN",
 	"MAILER", "SMTP_ADDR", "MAIL_FROM", "SMTP_TLS", "INTERNAL_SERVICE_TOKEN",
 	"RATE_LIMIT_ENABLED", "AUTO_MIGRATE", "LOG_LEVEL",
+	"REVOCATION_REFRESH_INTERVAL", "RETENTION_INTERVAL", "RETENTION_OUTBOX_WINDOW",
 }
 
 func clearEnv(t *testing.T) {
@@ -89,6 +91,35 @@ func TestLoadDefaultsSMTPToNoneOutsideProduction(t *testing.T) {
 	}
 }
 
+func TestLoadRetentionDefaults(t *testing.T) {
+	clearEnv(t)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RetentionInterval != time.Hour {
+		t.Fatalf("retention interval = %s, want 1h", cfg.RetentionInterval)
+	}
+	if cfg.RetentionOutboxWindow != 7*24*time.Hour {
+		t.Fatalf("outbox window = %s, want 168h", cfg.RetentionOutboxWindow)
+	}
+}
+
+// Zero is the documented way to turn the sweep off, and it must be accepted.
+func TestLoadAllowsDisabledRetention(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("RETENTION_INTERVAL", "0s")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RetentionInterval != 0 {
+		t.Fatalf("retention interval = %s, want 0", cfg.RetentionInterval)
+	}
+}
+
 func TestLoadPrivateKey(t *testing.T) {
 	clearEnv(t)
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -128,6 +159,8 @@ func TestLoadRejectsInvalidSettings(t *testing.T) {
 		{name: "invalid secure cookie flag", key: "COOKIE_SECURE", value: "yes-please"},
 		{name: "unknown app env", key: "APP_ENV", value: "staging"},
 		{name: "unknown smtp tls mode", key: "SMTP_TLS", value: "maybe"},
+		{name: "negative retention interval", key: "RETENTION_INTERVAL", value: "-1h"},
+		{name: "zero outbox window", key: "RETENTION_OUTBOX_WINDOW", value: "0s"},
 	}
 
 	for _, test := range tests {
