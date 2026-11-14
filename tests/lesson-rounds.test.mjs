@@ -13,7 +13,11 @@ test('every level has ten distinct authored examples and generates ten unique ro
     const rounds = createRounds(lesson, randomWithSeed(42))
     assert.equal(rounds.length, ROUNDS_PER_LEVEL)
     assert.equal(new Set(rounds).size, ROUNDS_PER_LEVEL, lesson.name)
-    assert.ok(rounds.every(text => text.length >= 28 && text.length <= 85), lesson.name)
+    const shortest = Math.min(...bank.map(example => example.length))
+    for (const text of rounds) {
+      assert.ok(bank.some(example => text.includes(example)), `${lesson.name}: round is not built from a complete authored example`)
+      assert.ok(text.length >= shortest, `${lesson.name}: round is shorter than the shortest example in its bank`)
+    }
   }
 })
 test('rounds vary their actual content rather than rearranging the same words', () => {
