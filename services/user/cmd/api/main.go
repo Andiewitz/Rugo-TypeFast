@@ -104,7 +104,7 @@ func run() error {
 
 	var sender mailer.Mailer = &mailer.Log{Logger: logger}
 	if cfg.Mailer == "smtp" {
-		sender = &mailer.SMTP{Addr: cfg.SMTPAddr, From: cfg.MailFrom}
+		sender = &mailer.SMTP{Addr: cfg.SMTPAddr, From: cfg.MailFrom, TLSMode: cfg.SMTPTLS}
 	}
 
 	worker := &outbox.Worker{

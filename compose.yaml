@@ -56,6 +56,7 @@ services:
       MAILER: smtp
       SMTP_ADDR: mailpit:1025
       MAIL_FROM: no-reply@kit.local
+      SMTP_TLS: none
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-token-change-me}
       RATE_LIMIT_ENABLED: "true"
     ports:

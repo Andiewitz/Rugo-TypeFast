@@ -31,6 +31,7 @@ type Config struct {
 	Mailer            string
 	SMTPAddr          string
 	MailFrom          string
+	SMTPTLS           string
 	InternalToken     string
 	RateLimit         bool
 	LogLevel          slog.Level
@@ -60,6 +61,17 @@ func Load() (Config, error) {
 		SMTPAddr:      getenv("SMTP_ADDR", "localhost:1025"),
 		MailFrom:      getenv("MAIL_FROM", "no-reply@kit.local"),
 		InternalToken: strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN")),
+	}
+
+	smtpTLSDefault := "none"
+	if env == "production" {
+		smtpTLSDefault = "starttls"
+	}
+	cfg.SMTPTLS = strings.ToLower(strings.TrimSpace(getenv("SMTP_TLS", smtpTLSDefault)))
+	switch cfg.SMTPTLS {
+	case "none", "opportunistic", "starttls":
+	default:
+		return Config{}, fmt.Errorf("SMTP_TLS must be none, opportunistic, or starttls, got %q", cfg.SMTPTLS)
 	}
 
 	if cfg.DatabaseURL == "" {

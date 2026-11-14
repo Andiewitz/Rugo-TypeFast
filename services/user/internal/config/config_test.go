@@ -13,7 +13,7 @@ var envKeys = []string{
 	"APP_ENV", "PORT", "DATABASE_URL", "APP_ORIGIN", "PUBLIC_APP_URL",
 	"JWT_PRIVATE_KEY", "JWT_KEY_ID", "JWT_ISSUER", "JWT_AUDIENCE",
 	"ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "COOKIE_SECURE", "COOKIE_DOMAIN",
-	"MAILER", "SMTP_ADDR", "MAIL_FROM", "INTERNAL_SERVICE_TOKEN",
+	"MAILER", "SMTP_ADDR", "MAIL_FROM", "SMTP_TLS", "INTERNAL_SERVICE_TOKEN",
 	"RATE_LIMIT_ENABLED", "AUTO_MIGRATE", "LOG_LEVEL",
 }
 
@@ -65,6 +65,18 @@ func TestLoadProductionRequiresSecrets(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsSMTPToNoneOutsideProduction(t *testing.T) {
+	clearEnv(t)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SMTPTLS != "none" {
+		t.Fatalf("development smtp tls = %q, want none for a local mailpit", cfg.SMTPTLS)
+	}
+}
+
 func TestLoadPrivateKey(t *testing.T) {
 	clearEnv(t)
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -103,6 +115,7 @@ func TestLoadRejectsInvalidSettings(t *testing.T) {
 		{name: "invalid jwt key", key: "JWT_PRIVATE_KEY", value: "not-base64!"},
 		{name: "invalid secure cookie flag", key: "COOKIE_SECURE", value: "yes-please"},
 		{name: "unknown app env", key: "APP_ENV", value: "staging"},
+		{name: "unknown smtp tls mode", key: "SMTP_TLS", value: "maybe"},
 	}
 
 	for _, test := range tests {
