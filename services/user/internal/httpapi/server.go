@@ -37,6 +37,7 @@ type Server struct {
 	tokens        *session.TokenManager
 	revocations   *revocation.Registry
 	limiter       *Limiter
+	loginLimiter  *Limiter
 }
 
 func New(
@@ -71,6 +72,7 @@ func New(
 		tokens:        tokens,
 		revocations:   revocations,
 		limiter:       newLimiter(cfg.RateLimit),
+		loginLimiter:  newLimiter(cfg.RateLimit),
 	}
 }
 
@@ -102,7 +104,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /v1/admin/users/{id}/roles/{role}", s.requirePermission(permissionRolesManage, http.HandlerFunc(s.handleAdminRevokeRole)))
 	mux.Handle("GET /v1/admin/roles", s.requirePermission(permissionRolesManage, http.HandlerFunc(s.handleAdminListRoles)))
 
-	mux.HandleFunc("POST /internal/v1/authz/check", s.handleInternalAuthz)
+	mux.Handle("POST /internal/v1/authz/check", s.rateLimit(rate.Every(50*time.Millisecond), 20, http.HandlerFunc(s.handleInternalAuthz)))
 
 	handler := s.withRequestID(
 		s.recoverer(
