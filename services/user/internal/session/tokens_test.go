@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
 	"typefast/services/user/internal/apperr"
@@ -14,15 +15,49 @@ import (
 
 func newManager(t *testing.T, audience string) *session.TokenManager {
 	t.Helper()
+	manager, _ := newManagerWithKey(t, audience, 15*time.Minute)
+	return manager
+}
+
+// newManagerWithKey exposes the signing key so tests can forge tokens the
+// issuer itself would never produce.
+func newManagerWithKey(t *testing.T, audience string, ttl time.Duration) (*session.TokenManager, ed25519.PrivateKey) {
+	t.Helper()
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := session.NewTokenManager(privateKey, "test-key", "kit-user", audience, 15*time.Minute)
+	manager, err := session.NewTokenManager(privateKey, "test-key", "kit-user", audience, ttl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return manager
+	return manager, privateKey
+}
+
+func forgeToken(t *testing.T, privateKey ed25519.PrivateKey, claims session.Claims) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
+	token.Header["kid"] = "test-key"
+	signed, err := token.SignedString(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed
+}
+
+func validClaims() session.Claims {
+	now := time.Now().UTC()
+	return session.Claims{
+		SessionID: uuid.Must(uuid.NewV7()).String(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "kit-user",
+			Subject:   uuid.Must(uuid.NewV7()).String(),
+			Audience:  jwt.ClaimStrings{"kit-api"},
+			ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+		},
+	}
 }
 
 func TestTokenManagerIssueAndParse(t *testing.T) {
@@ -100,6 +135,30 @@ func TestTokenManagerRejectsWrongKey(t *testing.T) {
 	}
 	if _, err := verifier.Parse(raw); err == nil {
 		t.Fatal("expected token signed by another key to fail")
+	}
+}
+
+// A correctly signed token must still be refused once it has expired, and the
+// issuer must never accept a token without an expiry at all.
+func TestTokenManagerRejectsExpiredAndUnboundedTokens(t *testing.T) {
+	t.Parallel()
+
+	manager, privateKey := newManagerWithKey(t, "kit-api", time.Minute)
+
+	expired := validClaims()
+	expired.ExpiresAt = jwt.NewNumericDate(time.Now().Add(-time.Minute))
+	if _, err := manager.Parse(forgeToken(t, privateKey, expired)); !apperr.IsKind(err, apperr.KindUnauthorized) {
+		t.Fatalf("expected expired token to be unauthorized, got %v", err)
+	}
+
+	unbounded := validClaims()
+	unbounded.ExpiresAt = nil
+	if _, err := manager.Parse(forgeToken(t, privateKey, unbounded)); !apperr.IsKind(err, apperr.KindUnauthorized) {
+		t.Fatalf("expected token without expiry to be unauthorized, got %v", err)
+	}
+
+	if _, err := manager.Parse(forgeToken(t, privateKey, validClaims())); err != nil {
+		t.Fatalf("expected a matching forged token to parse: %v", err)
 	}
 }
 
