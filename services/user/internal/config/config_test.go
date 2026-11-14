@@ -65,6 +65,18 @@ func TestLoadProductionRequiresSecrets(t *testing.T) {
 	}
 }
 
+// The token in .env.example is published, so a deployment that keeps it has a
+// shared secret anyone can read.
+func TestLoadRejectsDevelopmentInternalTokenInProduction(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("INTERNAL_SERVICE_TOKEN", "dev-internal-token-change-me")
+
+	if _, err := config.Load(); err == nil {
+		t.Fatal("expected the development internal token to be rejected in production")
+	}
+}
+
 func TestLoadDefaultsSMTPToNoneOutsideProduction(t *testing.T) {
 	clearEnv(t)
 

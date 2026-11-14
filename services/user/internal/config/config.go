@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// developmentInternalToken is the value published in .env.example and Compose.
+// A deployment that keeps it has a shared secret anyone can read.
+const developmentInternalToken = "dev-internal-token-change-me"
+
 type Config struct {
 	Env               string
 	Port              string
@@ -72,6 +76,10 @@ func Load() (Config, error) {
 	case "none", "opportunistic", "starttls":
 	default:
 		return Config{}, fmt.Errorf("SMTP_TLS must be none, opportunistic, or starttls, got %q", cfg.SMTPTLS)
+	}
+
+	if env == "production" && cfg.InternalToken == developmentInternalToken {
+		return Config{}, errors.New("INTERNAL_SERVICE_TOKEN still has the development default; set a unique secret or leave it empty to disable internal authorization")
 	}
 
 	if cfg.DatabaseURL == "" {
