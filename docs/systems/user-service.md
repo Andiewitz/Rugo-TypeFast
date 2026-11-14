@@ -58,6 +58,36 @@ The Docker image contains all four binaries under `/app`; the default entrypoint
 - CORS allows only `APP_ORIGIN` with credentials.
 - State-changing requests with an `Origin` header must match `APP_ORIGIN`.
 - JSON bodies are capped at 1 MiB and must not contain unknown fields.
+
+## HTTP routes
+
+Limits are token buckets per client address: the average refill and the burst.
+
+| Method | Path | Access | Limit |
+| --- | --- | --- | --- |
+| `GET` | `/healthz` | none | none |
+| `GET` | `/readyz` | none | none |
+| `POST` | `/v1/auth/register` | none | 1 per 12s, burst 5 |
+| `POST` | `/v1/auth/email/verify` | none | 1 per 3s, burst 10 |
+| `POST` | `/v1/auth/email/resend` | none | 1 per 12s, burst 5 |
+| `POST` | `/v1/auth/login` | none | 1 per 6s, burst 10, plus a per-account throttle |
+| `POST` | `/v1/auth/refresh` | refresh cookie | 1 per 2s, burst 30 |
+| `POST` | `/v1/auth/logout` | bearer, any permission | none |
+| `POST` | `/v1/auth/password/forgot` | none | 1 per 12s, burst 5 |
+| `POST` | `/v1/auth/password/reset` | none | 1 per 6s, burst 5 |
+| `GET` | `/v1/account` | bearer `account.read` | none |
+| `PATCH` | `/v1/account` | bearer `account.update` | none |
+| `GET` | `/v1/account/sessions` | bearer `sessions.read` | none |
+| `DELETE` | `/v1/account/sessions/{id}` | bearer `sessions.revoke` | none |
+| `GET` | `/v1/account/events` | bearer `account.read` | none |
+| `GET` | `/v1/admin/users` | bearer `users.read` | none |
+| `PATCH` | `/v1/admin/users/{id}/status` | bearer `users.manage` | none |
+| `POST` | `/v1/admin/users/{id}/roles` | bearer `roles.manage` | none |
+| `DELETE` | `/v1/admin/users/{id}/roles/{role}` | bearer `roles.manage` | none |
+| `GET` | `/v1/admin/roles` | bearer `roles.manage` | none |
+| `POST` | `/internal/v1/authz/check` | `X-Internal-Token` | 1 per 50ms, burst 20 |
+
+Error responses use the problem shape below. Success bodies carry the account, session, role, or event payloads described in the feature sections.
 - Rate limits are applied per client IP and path for auth endpoints; login is additionally throttled per account, so one host cannot spray a single address.
 - Security headers include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and restrictive permissions policy. `Strict-Transport-Security` is added whenever `COOKIE_SECURE` marks an HTTPS deployment.
 
@@ -170,6 +200,8 @@ Registration and recovery handlers write email messages to `outbox_events` in th
 
 `MAILER=log` records only metadata and does not include message bodies. `MAILER=smtp` uses `SMTP_ADDR` and `MAIL_FROM`. Local Compose uses Mailpit at `localhost:8025` for inspection.
 
+Verification and reset links put the token in the URL fragment (`/verify-email#token=…`), so the browser never sends it to the server in a request line, access log, or `Referer` header. The client reads `location.hash` and posts the token to the verify or reset endpoint.
+
 Message bodies carry single-use verification and reset tokens, so `SMTP_TLS` controls whether the hop is protected: `starttls` requires the relay to upgrade and is the production default, `opportunistic` upgrades when the relay offers it, and `none` sends in clear text. Development defaults to `none` because the local Mailpit has no certificate; a clear-text relay must never carry those links.
 
 ## Observability
@@ -182,7 +214,7 @@ Message bodies carry single-use verification and reset tokens, so `SMTP_TLS` con
 
 ### Metrics
 
-`cmd/api` registers a Prometheus registry with the `kit_user` subsystem and serves it at `GET /metrics` through `promhttp`. The route sits outside the authentication middleware in `httpapi.Routes`, so it is unauthenticated; keep it on a private network and scrape it there. Prometheus collects it with the `kit-user` job at `user:3001` every 15 seconds.
+`cmd/api` registers a Prometheus registry with the `kit_user` subsystem and serves it at `GET /metrics` on a listener of its own, `METRICS_ADDR`, which defaults to `127.0.0.1:9091`; `off` disables the listener. The API port serves no metrics route, so a scrape never reaches the internet-facing surface. Prometheus collects it with the `kit-user` job every 15 seconds.
 
 | Metric | Type | Labels |
 | --- | --- | --- |
@@ -219,6 +251,7 @@ No tracing exporter is configured yet.
 | `SMTP_TLS` | `none` in development, `starttls` in production | `starttls`, `opportunistic`, or `none`; `starttls` refuses a relay that cannot upgrade |
 | `INTERNAL_SERVICE_TOKEN` | empty | Enables internal authz endpoint |
 | `RATE_LIMIT_ENABLED` | `true` | In-memory rate limiting |
+| `METRICS_ADDR` | `127.0.0.1:9091` | Prometheus listener, separate from `PORT`; `off` disables it |
 | `REVOCATION_REFRESH_INTERVAL` | `5s` | How often replicas reload the revocation snapshot |
 | `RETENTION_INTERVAL` | `1h` | How often the retention sweep deletes dead rows; `0` disables it |
 | `RETENTION_OUTBOX_WINDOW` | `168h` | How long delivered outbox rows are kept for inspection |
@@ -235,6 +268,7 @@ From the repository root, generate a key with `go run ./services/user/cmd/keygen
 - IP-based rate limits and audit entries use the TCP peer address. Because they do not trust proxy headers yet, either terminate traffic direct at this service or add trusted-proxy handling before deploying behind a load balancer.
 - Outbox email delivery is at least once: a process crash between SMTP send and the successful update can duplicate a message.
 - Retention runs inside the API process every `RETENTION_INTERVAL`: expired one-time tokens, expired sessions, and outbox rows delivered more than `RETENTION_OUTBOX_WINDOW` ago are deleted in batches of 1000, so a backlog drains over several ticks. Revoked sessions are kept until their refresh token expires. `RETENTION_INTERVAL=0` disables the sweep, and production warns at startup.
+- Prometheus must scrape `METRICS_ADDR`, not `PORT`. Bind it to a private interface and leave the API port without a metrics route.
 - Token rotation uses a single Ed25519 key; key rotation requires deploying a new key and letting old access tokens expire.
 
 ## Failure behavior

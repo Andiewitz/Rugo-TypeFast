@@ -10,6 +10,7 @@ Architecture, ownership, and operational notes for each system in the repository
 - Runtime: browser
 - Stack: React 19, Vite, TypeScript
 - Responsibility: interactive product interface
+- Documentation: [`client-app.md`](client-app.md)
 
 ### @kit/web
 
@@ -17,6 +18,7 @@ Architecture, ownership, and operational notes for each system in the repository
 - Runtime: static build
 - Stack: Astro 7
 - Responsibility: public website and content
+- Documentation: [`../../client/web/README.md`](../../client/web/README.md)
 
 ### User service
 

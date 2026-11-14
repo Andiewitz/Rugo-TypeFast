@@ -29,8 +29,13 @@ The user-service integration suite covers:
 - Generic credential errors and duplicate-registration masking.
 - Refresh-token replay and family revocation.
 - Password-reset token reuse rejection.
-- Internal service token rejection.
-- Security headers, CORS, and rate-limit responses.
+- Internal service token rejection, including refusal of the published development value in production.
+- Security headers (including HSTS on HTTPS deployments), CORS, and rate-limit responses.
+- Per-account login throttling on top of per-address limits.
+- SMTP STARTTLS enforcement: a relay that cannot upgrade is refused.
+- Argon2 parameter bounds taken from the stored hash rather than trusting the request.
+- Metrics served on a separate listener; the API port answers `404` for `/metrics`.
+- Verification and reset links keep tokens in the URL fragment, out of request lines, access logs, and referrer headers.
 
 Run it with `npm run test:int:user`.
 
