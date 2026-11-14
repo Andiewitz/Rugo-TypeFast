@@ -4,7 +4,7 @@
 
 - Node.js 22.23.4 or newer
 - npm 11 or newer
-- Go 1.27.3
+- Go 1.27.4
 - Docker with Compose
 
 ## Setup
