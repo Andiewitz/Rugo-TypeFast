@@ -102,6 +102,7 @@ func TestLoadRejectsInvalidSettings(t *testing.T) {
 		{name: "invalid log level", key: "LOG_LEVEL", value: "verbose"},
 		{name: "invalid jwt key", key: "JWT_PRIVATE_KEY", value: "not-base64!"},
 		{name: "invalid secure cookie flag", key: "COOKIE_SECURE", value: "yes-please"},
+		{name: "unknown app env", key: "APP_ENV", value: "staging"},
 	}
 
 	for _, test := range tests {

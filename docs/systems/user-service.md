@@ -197,7 +197,7 @@ No tracing exporter is configured yet.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `APP_ENV` | `development` | Production requires explicit database and JWT key |
+| `APP_ENV` | `development` | `development`, `test`, or `production`; any other value stops startup. Production requires explicit database and JWT key |
 | `PORT` | `3001` | Listen port |
 | `DATABASE_URL` | local dev URL | Required in production |
 | `APP_ORIGIN` | `http://localhost:5173` | CORS and origin checks |

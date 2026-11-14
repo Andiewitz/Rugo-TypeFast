@@ -39,21 +39,27 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	env := getenv("APP_ENV", "development")
+	env := strings.ToLower(getenv("APP_ENV", "development"))
+	switch env {
+	case "development", "test", "production":
+	default:
+		return Config{}, fmt.Errorf("APP_ENV must be development, test, or production, got %q", env)
+	}
+
 	cfg := Config{
 		Env:           env,
 		Port:          getenv("PORT", "3001"),
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		DatabaseURL:   strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		AppOrigin:     strings.TrimRight(getenv("APP_ORIGIN", "http://localhost:5173"), "/"),
 		PublicAppURL:  strings.TrimRight(getenv("PUBLIC_APP_URL", "http://localhost:5173"), "/"),
 		JWTKeyID:      getenv("JWT_KEY_ID", "dev-1"),
 		JWTIssuer:     getenv("JWT_ISSUER", "kit-user"),
 		JWTAudience:   getenv("JWT_AUDIENCE", "kit-api"),
-		CookieDomain:  os.Getenv("COOKIE_DOMAIN"),
+		CookieDomain:  strings.TrimSpace(os.Getenv("COOKIE_DOMAIN")),
 		Mailer:        getenv("MAILER", "log"),
 		SMTPAddr:      getenv("SMTP_ADDR", "localhost:1025"),
 		MailFrom:      getenv("MAIL_FROM", "no-reply@kit.local"),
-		InternalToken: os.Getenv("INTERNAL_SERVICE_TOKEN"),
+		InternalToken: strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN")),
 	}
 
 	if cfg.DatabaseURL == "" {
