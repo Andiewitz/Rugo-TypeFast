@@ -28,6 +28,7 @@ services/user/cmd/api
      +-- internal/account        profile, sessions, audit history
      +-- internal/authorization  admin users/roles and permission checks
      +-- internal/outbox         transactional email worker
+     +-- internal/retention      periodic deletion of dead rows
      +-- internal/storage        pgx store and goose migrations
      |
      +--> PostgreSQL
@@ -233,7 +234,7 @@ From the repository root, generate a key with `go run ./services/user/cmd/keygen
 - The refresh cookie is hardcoded to `SameSite=Lax`; this works when app and API are the same site. If app and API are on different registrable domains, add a configurable `SameSite=None; Secure` option first.
 - IP-based rate limits and audit entries use the TCP peer address. Because they do not trust proxy headers yet, either terminate traffic direct at this service or add trusted-proxy handling before deploying behind a load balancer.
 - Outbox email delivery is at least once: a process crash between SMTP send and the successful update can duplicate a message.
-- Retention runs inside the API process: on every `RETENTION_INTERVAL` it deletes expired one-time tokens, expired sessions, and outbox rows delivered more than `RETENTION_OUTBOX_WINDOW` ago. Each table is swept in batches of 1000 with a bounded number of batches per tick, so a large backlog drains over several ticks instead of holding one long lock. Revoked sessions are kept until their refresh token expires, so a sign-out stays visible in the account's history. `RETENTION_INTERVAL=0` turns the sweep off, and production warns at startup; nothing else removes these rows.
+- Retention runs inside the API process every `RETENTION_INTERVAL`: expired one-time tokens, expired sessions, and outbox rows delivered more than `RETENTION_OUTBOX_WINDOW` ago are deleted in batches of 1000, so a backlog drains over several ticks. Revoked sessions are kept until their refresh token expires. `RETENTION_INTERVAL=0` disables the sweep, and production warns at startup.
 - Token rotation uses a single Ed25519 key; key rotation requires deploying a new key and letting old access tokens expire.
 
 ## Failure behavior
