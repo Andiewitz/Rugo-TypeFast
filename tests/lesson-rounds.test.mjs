@@ -6,9 +6,9 @@ import { createRounds, roundBanks, ROUNDS_PER_LEVEL } from '../client/app/src/co
 function randomWithSeed(seed) { return () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2 ** 32 } }
 
 test('every level has ten distinct authored examples and generates ten unique rounds', () => {
-  assert.equal(roundBanks.length, 13)
+  assert.equal(Object.keys(roundBanks).length, 13)
   for (const lesson of lessons) {
-    const bank = roundBanks[lesson.chapterIndex][lesson.levelIndex]
+    const bank = roundBanks[lesson.chapter][lesson.levelIndex]
     assert.ok(new Set(bank).size >= 10, lesson.name)
     const rounds = createRounds(lesson, randomWithSeed(42))
     assert.equal(rounds.length, ROUNDS_PER_LEVEL)
@@ -41,7 +41,7 @@ test('paragraph and Java examples retain indentation and line breaks', () => {
 
 test('every authored example respects chapter input boundaries', () => {
   for (const lesson of lessons) {
-    const bank = roundBanks[lesson.chapterIndex][lesson.levelIndex]
+    const bank = roundBanks[lesson.chapter][lesson.levelIndex]
     for (const text of bank) {
       assert.match(text, /^[\x09\x0A\x20-\x7E]+$/, `${lesson.name} contains an unsupported character`)
       if (lesson.chapterIndex < 3) assert.match(text, /^[a-z ]+$/, lesson.name)
