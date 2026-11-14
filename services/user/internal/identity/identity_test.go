@@ -110,6 +110,26 @@ func TestPasswordHashRoundTrip(t *testing.T) {
 	}
 }
 
+// Work factors come from the stored hash, so a planted or corrupted row must not
+// be able to make a single login allocate gigabytes.
+func TestVerifyPasswordRejectsUnboundedWorkFactors(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"memory":     "$argon2id$v=19$m=4294967295,t=3,p=2$c2FsdA$aGFzaA",
+		"iterations": "$argon2id$v=19$m=65536,t=99,p=2$c2FsdA$aGFzaA",
+		"threads":    "$argon2id$v=19$m=65536,t=3,p=32$c2FsdA$aGFzaA",
+	}
+
+	for name, hash := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := identity.VerifyPassword(hash, "password"); !errors.Is(err, identity.ErrInvalidHash) {
+				t.Fatalf("expected ErrInvalidHash, got %v", err)
+			}
+		})
+	}
+}
+
 func TestStatusValid(t *testing.T) {
 	t.Parallel()
 

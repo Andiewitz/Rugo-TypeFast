@@ -17,6 +17,12 @@ const (
 	argonParallelism = 2
 	argonSaltLength  = 16
 	argonKeyLength   = 32
+
+	// Upper bounds on work factors accepted from a stored hash. Without them a
+	// corrupted or planted row could make login allocate gigabytes.
+	argonMaxMemory      = 256 * 1024
+	argonMaxIterations  = 10
+	argonMaxParallelism = 16
 )
 
 var ErrInvalidHash = errors.New("invalid password hash")
@@ -52,6 +58,9 @@ func VerifyPassword(encoded, password string) (bool, error) {
 		return false, ErrInvalidHash
 	}
 	if memory == 0 || iterations == 0 || parallelism == 0 {
+		return false, ErrInvalidHash
+	}
+	if memory > argonMaxMemory || iterations > argonMaxIterations || parallelism > argonMaxParallelism {
 		return false, ErrInvalidHash
 	}
 
