@@ -11,4 +11,6 @@ test('whitespace has visible and accessible labels', () => {
   assert.equal(displayLessonCharacter('\t'), '⇥')
   assert.equal(describeLessonCharacter('\n'), 'Enter')
   assert.equal(describeLessonCharacter('\t'), 'Tab')
+  assert.equal(describeLessonCharacter(' '), 'Space')
+  assert.equal(describeLessonCharacter('a'), 'a')
 })

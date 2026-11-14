@@ -23,6 +23,12 @@ test('rounds vary their actual content rather than rearranging the same words', 
     assert.ok(new Set(signatures).size >= 5, lesson.name)
   }
 })
+test('a chapter without a content bank fails where it is introduced', () => {
+  assert.throws(
+    () => createRounds({ ...lessons[0], chapter: 'Unknown chapter' }),
+    /Missing round content for Unknown chapter level 1/,
+  )
+})
 test('separate attempts use different round sequences', () => {
   assert.notDeepEqual(createRounds(lessons[0], randomWithSeed(1)), createRounds(lessons[0], randomWithSeed(2)))
 })
