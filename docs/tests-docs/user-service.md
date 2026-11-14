@@ -32,6 +32,7 @@ Coverage includes:
 - Outbox send, retry, unsupported topic, and invalid payload.
 - HTTP middleware: JSON decoding, CORS, security headers, request IDs, origin checks, rate limits, and problem responses.
 - Token revocation snapshot: issue-time comparisons, snapshot replacement, retention on refresh failure, refresher loop shutdown, and concurrent access.
+- Retention sweep: expiry cutoffs for tokens and sessions, the inspection window for delivered outbox rows, continuing after one table fails, and the startup sweep plus tick loop.
 
 ## Integration tests
 
@@ -76,6 +77,7 @@ Covered flows:
 - Health and readiness endpoints.
 - Ban enforcement: a suspended account is rejected with `token_revoked` on every authenticated route, refresh and login are refused, other accounts keep working, reactivation leaves pre-ban tokens dead, a polling replica picks the ban up, and the marker plus session revocation are recorded.
 - Cognito identity storage: creating a verified user from a subject, duplicate subject and email rejection, subject lookup, linking to an existing local account with idempotent relink, re-point and cross-account conflicts, soft-deleted accounts, and blank-input validation.
+- Retention against real rows: expired tokens and sessions deleted, live and revoked-but-unexpired sessions kept, delivered outbox rows past the window deleted while recent and pending rows survive, and a backlog larger than one batch drained completely.
 
 Email is not sent during integration tests. The outbox payload is read directly so verification and reset tokens can be extracted.
 

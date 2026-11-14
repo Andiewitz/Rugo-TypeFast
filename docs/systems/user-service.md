@@ -219,6 +219,8 @@ No tracing exporter is configured yet.
 | `INTERNAL_SERVICE_TOKEN` | empty | Enables internal authz endpoint |
 | `RATE_LIMIT_ENABLED` | `true` | In-memory rate limiting |
 | `REVOCATION_REFRESH_INTERVAL` | `5s` | How often replicas reload the revocation snapshot |
+| `RETENTION_INTERVAL` | `1h` | How often the retention sweep deletes dead rows; `0` disables it |
+| `RETENTION_OUTBOX_WINDOW` | `168h` | How long delivered outbox rows are kept for inspection |
 | `LOG_LEVEL` | `info` | debug, info, warn, error |
 | `AUTO_MIGRATE` | `false` | Apply migrations at API startup |
 
@@ -231,7 +233,7 @@ From the repository root, generate a key with `go run ./services/user/cmd/keygen
 - The refresh cookie is hardcoded to `SameSite=Lax`; this works when app and API are the same site. If app and API are on different registrable domains, add a configurable `SameSite=None; Secure` option first.
 - IP-based rate limits and audit entries use the TCP peer address. Because they do not trust proxy headers yet, either terminate traffic direct at this service or add trusted-proxy handling before deploying behind a load balancer.
 - Outbox email delivery is at least once: a process crash between SMTP send and the successful update can duplicate a message.
-- There is no retention job yet for expired sessions, consumed tokens, or sent outbox rows. Schedule cleanup before production data grows.
+- Retention runs inside the API process: on every `RETENTION_INTERVAL` it deletes expired one-time tokens, expired sessions, and outbox rows delivered more than `RETENTION_OUTBOX_WINDOW` ago. Each table is swept in batches of 1000 with a bounded number of batches per tick, so a large backlog drains over several ticks instead of holding one long lock. Revoked sessions are kept until their refresh token expires, so a sign-out stays visible in the account's history. `RETENTION_INTERVAL=0` turns the sweep off, and production warns at startup; nothing else removes these rows.
 - Token rotation uses a single Ed25519 key; key rotation requires deploying a new key and letting old access tokens expire.
 
 ## Failure behavior
