@@ -12,3 +12,10 @@ test('aggregates time, characters, accuracy and mistakes across rounds', () => {
   assert.deepEqual(result.samples.map(sample => sample.seconds), [10, 15])
   assert.equal(result.passed, true)
 })
+test('an attempt with no rounds reports no speed instead of dividing by zero', () => {
+  const result = aggregateRounds([])
+  assert.equal(result.wpm, 0)
+  assert.equal(result.accuracy, 100)
+  assert.equal(result.mistakeCount, 0)
+  assert.deepEqual(result.samples, [])
+})

@@ -12,3 +12,10 @@ test('replays preserve the best result', () => {
   assert.deepEqual(recordBestStars([3, 1], 0, 2), [3, 1])
   assert.deepEqual(recordBestStars([3, 1], 1, 3), [3, 3])
 })
+test('a first clear records stars for a level that has none yet', () => {
+  assert.deepEqual(recordBestStars([3, 1], 2, 3), [3, 1, 3])
+  assert.deepEqual(recordBestStars([], 0, 2), [2])
+  const grown = recordBestStars([3], 3, 2)
+  assert.equal(grown.length, 4)
+  assert.equal(grown[3], 2)
+})
