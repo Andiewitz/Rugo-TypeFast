@@ -24,7 +24,7 @@ test('restores archived unlocks after the transitional course version', () => {
 })
 test('the current course does not get reset again', () => {
   const saved = { completed: 8, stars: [3], courseVersion: COURSE_VERSION }
-  assert.equal(migrateCourseProgress(saved), saved)
+  assert.deepEqual(migrateCourseProgress(saved), saved)
 })
 
 test('a completed previous course keeps all chapters open and the new levels unearned', () => {
