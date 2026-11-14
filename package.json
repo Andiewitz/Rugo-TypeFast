@@ -21,7 +21,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present && npm run vet:user",
     "vet:user": "go -C services/user vet ./...",
     "lint": "npm run lint --workspaces --if-present && npm run vet:user",
-    "test": "npm run test:user",
+    "test": "npm run test:user && npm run test:lesson",
     "test:lesson": "node --experimental-strip-types --test tests/lesson-*.test.mjs tests/daily-progress.test.mjs",
     "test:unit:user": "go -C services/user test ./internal/...",
     "test:user": "go -C services/user test ./...",
