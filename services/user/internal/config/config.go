@@ -20,6 +20,7 @@ const developmentInternalToken = "dev-internal-token-change-me"
 type Config struct {
 	Env                   string
 	Port                  string
+	MetricsAddr           string
 	DatabaseURL           string
 	AppOrigin             string
 	PublicAppURL          string
@@ -56,6 +57,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		Env:           env,
 		Port:          getenv("PORT", "3001"),
+		MetricsAddr:   strings.TrimSpace(getenv("METRICS_ADDR", "127.0.0.1:9091")),
 		DatabaseURL:   strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		AppOrigin:     strings.TrimRight(getenv("APP_ORIGIN", "http://localhost:5173"), "/"),
 		PublicAppURL:  strings.TrimRight(getenv("PUBLIC_APP_URL", "http://localhost:5173"), "/"),
@@ -67,6 +69,12 @@ func Load() (Config, error) {
 		SMTPAddr:      getenv("SMTP_ADDR", "localhost:1025"),
 		MailFrom:      getenv("MAIL_FROM", "no-reply@kit.local"),
 		InternalToken: strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN")),
+	}
+
+	// Metrics get their own listener so the internet-facing port exposes no
+	// scrape surface. "off" disables the listener entirely.
+	if strings.EqualFold(cfg.MetricsAddr, "off") {
+		cfg.MetricsAddr = ""
 	}
 
 	smtpTLSDefault := "none"

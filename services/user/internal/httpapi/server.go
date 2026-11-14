@@ -81,7 +81,6 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /readyz", s.handleReady)
-	mux.Handle("GET /metrics", s.metrics.Handler())
 
 	mux.Handle("POST /v1/auth/register", s.rateLimit(rate.Every(12*time.Second), 5, http.HandlerFunc(s.handleRegister)))
 	mux.Handle("POST /v1/auth/email/verify", s.rateLimit(rate.Every(3*time.Second), 10, http.HandlerFunc(s.handleVerifyEmail)))

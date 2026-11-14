@@ -59,8 +59,10 @@ services:
       SMTP_TLS: none
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-token-change-me}
       RATE_LIMIT_ENABLED: "true"
+      METRICS_ADDR: 0.0.0.0:9091
     ports:
       - "127.0.0.1:3001:3001"
+      - "127.0.0.1:9091:9091"
     depends_on:
       db:
         condition: service_healthy

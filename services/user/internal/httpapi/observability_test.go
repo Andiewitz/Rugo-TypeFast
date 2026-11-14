@@ -65,7 +65,7 @@ func (w *responseRecorder) WriteHeader(status int) {
 	w.ResponseWriter.WriteHeader(status)
 }
 
-func TestMetricsEndpointExposesPrometheus(t *testing.T) {
+func TestAPIPortDoesNotServeMetrics(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
@@ -74,7 +74,18 @@ func TestMetricsEndpointExposesPrometheus(t *testing.T) {
 		metrics: observability.NewPrometheus(),
 	}
 
-	handler := server.Routes()
+	recorder := httptest.NewRecorder()
+	server.Routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected the API port to reject /metrics, got %d", recorder.Code)
+	}
+}
+
+func TestMetricsListenerExposesPrometheus(t *testing.T) {
+	t.Parallel()
+
+	handler := observability.MetricsHandler(observability.NewPrometheus())
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 

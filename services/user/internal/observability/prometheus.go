@@ -69,3 +69,12 @@ func (m *prometheusMetrics) AddPanic() {
 func (m *prometheusMetrics) Handler() http.Handler {
 	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
 }
+
+// MetricsHandler serves the registry at /metrics for a dedicated listener. The
+// API mux deliberately does not route it, so the public port carries no scrape
+// surface even when authentication is misconfigured.
+func MetricsHandler(m Metrics) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", m.Handler())
+	return mux
+}

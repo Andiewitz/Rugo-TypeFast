@@ -39,7 +39,7 @@ docker compose --profile observability up -d
 | Grafana | http://localhost:3000 |
 | Prometheus | http://localhost:9090 |
 | Loki | http://localhost:3100 |
-| Metrics feed | each container `/metrics` |
+| Metrics feed | user service `http://localhost:9091/metrics` |
 | Dashboard folder | General (default home) |
 
 All observability endpoints are bound to `127.0.0.1` by default.

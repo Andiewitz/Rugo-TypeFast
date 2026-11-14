@@ -15,7 +15,7 @@ var envKeys = []string{
 	"JWT_PRIVATE_KEY", "JWT_KEY_ID", "JWT_ISSUER", "JWT_AUDIENCE",
 	"ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "COOKIE_SECURE", "COOKIE_DOMAIN",
 	"MAILER", "SMTP_ADDR", "MAIL_FROM", "SMTP_TLS", "INTERNAL_SERVICE_TOKEN",
-	"RATE_LIMIT_ENABLED", "AUTO_MIGRATE", "LOG_LEVEL",
+	"RATE_LIMIT_ENABLED", "AUTO_MIGRATE", "LOG_LEVEL", "METRICS_ADDR",
 	"REVOCATION_REFRESH_INTERVAL", "RETENTION_INTERVAL", "RETENTION_OUTBOX_WINDOW",
 }
 
@@ -50,6 +50,22 @@ func TestLoadDevelopmentDefaults(t *testing.T) {
 	}
 	if cfg.CookieSecure {
 		t.Fatal("development cookies should not require HTTPS by default")
+	}
+	if cfg.MetricsAddr != "127.0.0.1:9091" {
+		t.Fatalf("metrics addr = %q", cfg.MetricsAddr)
+	}
+}
+
+func TestLoadMetricsListenerCanBeDisabled(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("METRICS_ADDR", "off")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MetricsAddr != "" {
+		t.Fatalf("metrics addr = %q", cfg.MetricsAddr)
 	}
 }
 
