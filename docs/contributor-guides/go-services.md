@@ -115,11 +115,10 @@ Integration tests require PostgreSQL and truncate the identity tables before eac
 
 ```bash
 npm run db:up
-npm run migrate:up
 npm run test:int:user
 ```
 
-Use `TEST_DATABASE_URL` to point integration tests at a dedicated database. Never run them against shared or production data.
+They run against `kit_test`, which the harness creates and migrates on first use. `DATABASE_URL` is ignored so a development database cannot be truncated by accident; set `TEST_DATABASE_URL` only to choose a different scratch database, and keep its name ending in `_test`. Never run them against shared or production data.
 
 Useful checks:
 

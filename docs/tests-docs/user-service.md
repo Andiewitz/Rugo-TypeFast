@@ -43,9 +43,10 @@ Run:
 
 ```bash
 npm run db:up
-npm run migrate:up
 npm run test:int:user
 ```
+
+The suite prepares its own test database, so a separate migration step is only needed for the development database a developer runs the API against.
 
 Direct command:
 
@@ -55,11 +56,12 @@ go -C tests test ./int/user/... -count=1
 
 Environment:
 
-- `TEST_DATABASE_URL` preferred.
-- Falls back to `DATABASE_URL`.
-- Falls back to the local Compose URL.
+- `TEST_DATABASE_URL` selects the database. Its name must be lowercase and end in `_test`.
+- Without it, the suite uses `postgres://kit:kit_dev_password@localhost:5432/kit_test?sslmode=disable`.
+- `DATABASE_URL` is deliberately ignored so a local development database is never touched.
+- The harness creates the test database when it is missing, then applies migrations.
 
-The harness truncates `users`, `sessions`, `one_time_tokens`, `audit_events`, and `outbox_events` before each harness instance. Roles and permissions seeded by migration remain. Never point these tests at shared or production data.
+The harness truncates `users`, `sessions`, `one_time_tokens`, `audit_events`, and `outbox_events` before each harness instance. Roles and permissions seeded by migration remain. The name check exists because that truncation is destructive: a URL that does not point at a `_test` database stops the run before any test executes. Never point these tests at shared or production data.
 
 Covered flows:
 
