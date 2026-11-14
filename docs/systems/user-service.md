@@ -173,10 +173,25 @@ Registration and recovery handlers write email messages to `outbox_events` in th
 
 - Structured JSON logs include request method, path, status, duration, bytes, IP, and request ID.
 - Internal errors are logged with the request ID; clients receive a generic detail.
+- Recovered panics increment `kit_user_panics_total` and log a `stack_trace` with the request ID.
 - Audit events record authentication, account, session, and admin actions.
 - Health endpoints support container and load-balancer checks.
 
-No metrics or tracing exporter is configured yet.
+### Metrics
+
+`cmd/api` registers a Prometheus registry with the `kit_user` subsystem and serves it at `GET /metrics` through `promhttp`. The route sits outside the authentication middleware in `httpapi.Routes`, so it is unauthenticated; keep it on a private network and scrape it there. Prometheus collects it with the `kit-user` job at `user:3001` every 15 seconds.
+
+| Metric | Type | Labels |
+| --- | --- | --- |
+| `kit_user_http_requests_total` | counter | `method`, `path`, `status` |
+| `kit_user_http_request_duration_seconds` | histogram | `method`, `path` |
+| `kit_user_panics_total` | counter | none |
+
+The latency histogram uses buckets from 5 ms to 10 s. The `path` label is not the raw request path: `observability.RouteLabel` folds it into `health`, `auth_user`, `auth_session`, `account`, `admin`, `internal`, `metrics`, or `other`, which keeps series cardinality fixed as traffic and identifiers grow.
+
+A panicked request increments `kit_user_panics_total` but not `kit_user_http_requests_total`, because the recoverer wraps the logging middleware and the panic skips its recording. Alert on `kit_user_panics_total` for those requests rather than on error rates alone.
+
+No tracing exporter is configured yet.
 
 ## Configuration
 
