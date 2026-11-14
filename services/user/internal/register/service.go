@@ -128,7 +128,9 @@ func (s *Service) ResendVerification(ctx context.Context, email, ip string) erro
 }
 
 func (s *Service) verificationMessage(email, rawToken string) mailer.Message {
-	link := fmt.Sprintf("%s/verify-email?token=%s", s.publicAppURL, rawToken)
+	// The token rides in the fragment so it never reaches a server access log or
+	// a Referer header; the client reads location.hash and posts it.
+	link := fmt.Sprintf("%s/verify-email#token=%s", s.publicAppURL, rawToken)
 	return mailer.Message{
 		To:      email,
 		Subject: "Verify your Type Fast email",

@@ -102,7 +102,7 @@ func TestForgotPasswordQueuesHashedToken(t *testing.T) {
 	if store.email != "user@example.com" {
 		t.Fatalf("email = %q", store.email)
 	}
-	if !strings.Contains(store.message.Text, "/reset-password?token=") {
+	if !strings.Contains(store.message.Text, "/reset-password#token=") {
 		t.Fatal("reset link missing")
 	}
 	rawToken := extractToken(t, store.message.Text)

@@ -67,7 +67,9 @@ func (s *Service) ForgotPassword(ctx context.Context, email, ip string) error {
 		Hash:      tokenHash,
 		ExpiresAt: now.Add(resetTTL),
 	}
-	link := fmt.Sprintf("%s/reset-password?token=%s", s.publicAppURL, rawToken)
+	// The token rides in the fragment so it never reaches a server access log or
+	// a Referer header; the client reads location.hash and posts it.
+	link := fmt.Sprintf("%s/reset-password#token=%s", s.publicAppURL, rawToken)
 	message := mailer.Message{
 		To:      normalized,
 		Subject: "Reset your Type Fast password",
