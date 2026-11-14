@@ -1,5 +1,5 @@
 import type { Page, Progress } from '../progress'
-export function InfoPage({page,progress,start}: {page:Exclude<Page,'Learn'>;progress:Progress;start:()=>void}) {
+export function InfoPage({page,progress,start}: {page:Exclude<Page,'Learn'|'Settings'>;progress:Progress;start:()=>void}) {
  const content = {
  Practice: {title:'Practice', text:'Warm up with a home row typing exercise. Complete it to earn XP and track your speed.'},
  Leagues: {title:'Leagues', text:'Leagues will bring friendly competition to Rugo. Online leaderboards are not connected yet.'},

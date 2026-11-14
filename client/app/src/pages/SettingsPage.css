@@ -1,0 +1,3 @@
+.build-version { display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin-top:20px; padding:14px 16px; background:#f4f2ff; border-radius:14px; }
+.build-version dt { color:#5e5a80; font-weight:800; font-size:14px; }
+.build-version dd { margin:0; color:#1f1a3d; font:800 16px Nunito,sans-serif; font-variant-numeric:tabular-nums; }

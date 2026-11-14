@@ -6,6 +6,7 @@ import { Lesson } from '../components/Lesson'
 import { LessonLoading } from '../components/LessonLoading'
 import { InfoPage } from './InfoPage'
 import { PracticePage } from './PracticePage'
+import { SettingsPage } from './SettingsPage'
 import { lessons, readProgress, todayKey, type Page } from '../progress'
 import { useSound } from '../sound/SoundProvider'
 import { recordBestStars, starsFor } from '../components/lesson/stars'
@@ -29,6 +30,6 @@ export function LearnPage() {
  if (loadingLesson !== null) return <LessonLoading key={loadingLesson} index={loadingLesson} onReady={openLesson}/>
  const firstClear = lesson === null ? false : isFirstClear(progress, lesson)
  if (lesson !== null) return <div className="lesson-focused"><Lesson key={lesson} showIntro={firstClear} isFirstClear={firstClear} onNext={lesson < lessons.length - 1 ? () => startLesson(lesson + 1) : undefined} index={lesson} bestWpm={progress.bestWpm} onClose={()=>{setLesson(null);setPage('Learn')}} onFinish={finish}/></div>
- return <div className="app-shell"><Sidebar page={page} navigate={navigate}/>{page==='Learn' ? <LearningPath unearnedLevels={progress.unearnedLevels} hasLegacy={Boolean(progress.legacyCourse || progress.previousCourse)} stars={progress.stars} completed={progress.completed} start={startLesson}/> : page==='Practice' ? <PracticePage progress={progress} start={startLesson}/> : <InfoPage page={page} progress={progress} start={()=>startLesson(0)}/>}<ProgressPanel progress={progress} navigate={navigate}/>{storageUnavailable && <p className="storage-notice" role="status">Progress could not be saved on this device. Check your browser storage settings.</p>}</div>
+ return <div className="app-shell"><Sidebar page={page} navigate={navigate}/>{page==='Learn' ? <LearningPath unearnedLevels={progress.unearnedLevels} hasLegacy={Boolean(progress.legacyCourse || progress.previousCourse)} stars={progress.stars} completed={progress.completed} start={startLesson}/> : page==='Practice' ? <PracticePage progress={progress} start={startLesson}/> : page==='Settings' ? <SettingsPage/> : <InfoPage page={page} progress={progress} start={()=>startLesson(0)}/>}<ProgressPanel progress={progress} navigate={navigate}/>{storageUnavailable && <p className="storage-notice" role="status">Progress could not be saved on this device. Check your browser storage settings.</p>}</div>
 }
 

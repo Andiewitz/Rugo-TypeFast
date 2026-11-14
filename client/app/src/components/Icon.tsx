@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-type IconName = 'home' | 'keyboard' | 'trophy' | 'target' | 'user' | 'check' | 'lock' | 'star' | 'fire' | 'bolt' | 'shield'
+type IconName = 'home' | 'keyboard' | 'trophy' | 'target' | 'user' | 'settings' | 'check' | 'lock' | 'star' | 'fire' | 'bolt' | 'shield'
 const paths: Record<IconName, ReactNode> = {
   home: <path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10" />,
   keyboard: <><rect x="2" y="6" width="20" height="12" rx="3"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></>,
@@ -12,6 +12,7 @@ const paths: Record<IconName, ReactNode> = {
   star: <path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.5 6.6 19.5l1.2-6L3.3 9.3l6.1-.7L12 3z"/>,
   fire: <path d="M12 2.5c1 3.6 5.5 5.6 5.5 10.5a5.5 5.5 0 0 1-11 0c0-2.1 1-3.4 2.2-4.4 0 1.7 1 2.8 2.1 2.8C10.6 8.6 10.6 5.2 12 2.5z"/>,
   bolt: <path d="M13.5 2L4.5 13.5h6L9.5 22l9-11.5h-6L13.5 2z"/>,
+  settings: <><path d="M4 7h6M14 7h6M4 17h10M18 17h2"/><circle cx="12" cy="7" r="2"/><circle cx="16" cy="17" r="2"/></>,
   shield: <><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"/><path d="M12 8l1.2 2.5 2.8.3-2 1.9.5 2.8L12 14.2 9.5 15.5l.5-2.8-2-1.9 2.8-.3L12 8z" fill="white" stroke="none"/></>,
 }
 export function Icon({name, size = 24, className = ''}: {name: IconName; size?: number; className?: string}) {
