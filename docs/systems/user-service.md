@@ -1,7 +1,7 @@
 # User service
 
 - Location: `services/user`
-- Runtime: Go 1.27.3
+- Runtime: Go 1.27.4
 - Datastore: PostgreSQL 18
 - Default port: `3001`
 - Health: `GET /healthz`, readiness: `GET /readyz`
@@ -113,7 +113,7 @@ Each replica keeps an in-memory snapshot of revoked accounts. A request is rejec
 
 - Reset requests are accepted for unknown accounts without revealing existence.
 - Reset tokens are hashed, single-use, and expire in 30 minutes.
-- A successful reset updates the password and revokes all sessions.
+- A successful reset updates the password, revokes all sessions, and stamps `users.revoked_before` in the same statement. Access tokens issued before the reset are refused on the replica that handled it immediately, and on other replicas within `REVOCATION_REFRESH_INTERVAL`.
 
 ## Authorization model
 

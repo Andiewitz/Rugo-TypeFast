@@ -4,7 +4,7 @@ Guide for the Go service module at `services/user`.
 
 ## Prerequisites
 
-- Go 1.27.3
+- Go 1.27.4
 - Docker with Compose for PostgreSQL and Mailpit
 - Node.js 22.23.4 or newer for the client workspaces
 
@@ -12,7 +12,7 @@ Verify the toolchain:
 
 ```bash
 go version
-# go version go1.27.3 linux/amd64
+# go version go1.27.4 linux/amd64
 ```
 
 If `/usr/local/go/bin` is not on `PATH`, add it or invoke that binary directly. The `go` command can also auto-download the toolchain declared in `go.mod` when `GOTOOLCHAIN=auto`.
