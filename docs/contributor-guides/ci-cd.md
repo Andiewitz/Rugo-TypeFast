@@ -142,7 +142,7 @@ REVOCATION_CHANNEL=kit:revocations
 
 Confirmation is in the logs: startup prints `revocation bus enabled` with the channel, a publish that cannot reach Redis prints `revocation broadcast failed` and still commits the ban, and a dropped subscription prints `revocation bus interrupted`. All three keep polling in place, so a broken bus slows propagation and nothing else.
 
-Bans written with the `admin` CLI on the server do not go through the bus; they reach other instances on the next poll.
+The `admin` CLI uses the same variables. When you run `set-status` on the host with `REVOCATION_BUS=redis` and `REDIS_URL` set, other instances hear it immediately; without them the change reaches them on the next poll. `docker compose exec` passes the container's environment, so `docker compose -p type-fast -f compose.prod.yaml exec user /app/admin set-status …` broadcasts, while a bare shell on the host does not.
 
 ### Rolling back
 

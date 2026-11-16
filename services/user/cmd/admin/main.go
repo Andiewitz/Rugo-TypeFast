@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"typefast/services/user/internal/audit"
 	"typefast/services/user/internal/identity"
+	"typefast/services/user/internal/revocation"
+	"typefast/services/user/internal/revocation/bus"
 	"typefast/services/user/internal/storage/postgres"
 )
 
@@ -42,13 +46,22 @@ func run(args []string) error {
 	}
 	defer store.Close()
 
+	// The CLI is a separate process, so a status change here has to be broadcast
+	// by hand or other instances wait for their next refresh.
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	publisher, closeBus, err := busPublisher(logger)
+	if err != nil {
+		return err
+	}
+	defer closeBus()
+
 	switch args[0] {
 	case "list-users":
 		return listUsers(ctx, store, args[1:])
 	case "list-roles":
 		return listRoles(ctx, store)
 	case "set-status":
-		return setStatus(ctx, store, args[1:])
+		return setStatus(ctx, store, publisher, logger, args[1:])
 	case "grant-role":
 		return grantRole(ctx, store, args[1:])
 	case "revoke-role":
@@ -97,7 +110,7 @@ func listRoles(ctx context.Context, store *postgres.Store) error {
 	return printJSON(map[string]any{"roles": roles})
 }
 
-func setStatus(ctx context.Context, store *postgres.Store, args []string) error {
+func setStatus(ctx context.Context, store *postgres.Store, publisher revocation.Publisher, logger *slog.Logger, args []string) error {
 	if len(args) != 2 {
 		return fmt.Errorf("set-status requires <user-id> <active|suspended>")
 	}
@@ -119,6 +132,23 @@ func setStatus(ctx context.Context, store *postgres.Store, args []string) error 
 		Action:    "admin.cli_status_changed",
 		Metadata:  map[string]any{"status": string(status)},
 	})
+
+	// Same marker the API computes, so replicas merge this with the same rules.
+	if publisher != nil {
+		registry := revocation.NewRegistry(store, logger)
+		registry.SetPublisher(publisher)
+		before := markerFor(user)
+		if status == identity.StatusSuspended {
+			if before.IsZero() {
+				before = time.Now().UTC()
+			}
+			registry.Revoke(id, before)
+		} else {
+			registry.Restore(id, before)
+		}
+		logger.Info("revocation broadcast", "user_id", id, "status", string(status))
+	}
+
 	return printJSON(outputUser(user))
 }
 
@@ -160,6 +190,43 @@ func revokeRole(ctx context.Context, store *postgres.Store, args []string) error
 	})
 	fmt.Printf("revoked role %s from %s\n", role, id)
 	return nil
+}
+
+// markerFor returns the stored cut-off for a user, or the zero time when they
+// never had one.
+func markerFor(user identity.User) time.Time {
+	if user.RevokedBefore == nil {
+		return time.Time{}
+	}
+	return *user.RevokedBefore
+}
+
+// busPublisher opens the revocation bus when it is configured. It returns a nil
+// publisher when the bus is off, which keeps the CLI silent on a single host.
+func busPublisher(logger *slog.Logger) (revocation.Publisher, func(), error) {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("REVOCATION_BUS")))
+	switch mode {
+	case "", "none":
+		return nil, func() {}, nil
+	case "redis":
+	default:
+		return nil, func() {}, fmt.Errorf("REVOCATION_BUS must be none or redis, got %q", mode)
+	}
+
+	url := strings.TrimSpace(os.Getenv("REDIS_URL"))
+	if url == "" {
+		return nil, func() {}, fmt.Errorf("REDIS_URL is required when REVOCATION_BUS=redis")
+	}
+	channel := strings.TrimSpace(os.Getenv("REVOCATION_CHANNEL"))
+	if channel == "" {
+		channel = "kit:revocations"
+	}
+
+	client, err := bus.NewRedis(url, channel, logger)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	return client, func() { _ = client.Close() }, nil
 }
 
 func parseRoleArgs(args []string) (uuid.UUID, string, error) {

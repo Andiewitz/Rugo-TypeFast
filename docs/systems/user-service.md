@@ -100,7 +100,7 @@ Suspending an account does three things in one transaction: sets `status = 'susp
 - Reactivating lifts the suspension but keeps the marker, so new tokens work and pre-ban tokens stay dead.
 - The replica handling the ban applies it immediately; others reload every `REVOCATION_REFRESH_INTERVAL` (default `5s`).
 - With `REVOCATION_BUS=redis`, replicas also broadcast each change on a Redis channel, so the rest apply it in milliseconds instead of waiting for the next reload. Redis only carries news: if it is down, bans still commit and the timer closes the gap, and no request ever waits on it.
-- A ban written by the `admin` CLI bypasses the bus, because the CLI is a separate process. Other replicas learn about it on their next refresh.
+- The `admin` CLI publishes to the same channel when `REVOCATION_BUS` and `REDIS_URL` are set for its process, so `set-status` from a shell reaches other replicas as fast as a ban from the API. Without those variables it stays local and replicas learn on their next refresh.
 - The check is a map lookup, so it adds no database load and grows with banned accounts, not users.
 - Issued-at times have one-second resolution, so a token minted in the same second as a ban is allowed. The window is under a second, and the trade is deliberate: never lock out someone who just signed in.
 - A failed refresh keeps the previous snapshot, so a database hiccup cannot quietly un-ban anyone. A failed first load stops startup.
