@@ -1,4 +1,4 @@
-FROM golang:1.27.3-alpine AS build
+FROM golang:1.27.4-alpine AS build
 
 WORKDIR /src
 
@@ -25,6 +25,11 @@ COPY --from=build /out/ /app/
 
 USER 10001
 
-EXPOSE 3001
+# 3001 is the API; 9091 is the metrics listener (METRICS_ADDR).
+EXPOSE 3001 9091
+
+# Override the URL when PORT or APP_ENV changes the listen address.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:3001/healthz > /dev/null || exit 1
 
 ENTRYPOINT ["/app/api"]
