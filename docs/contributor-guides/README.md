@@ -4,7 +4,7 @@
 
 - Node.js 22.23.4 or newer
 - npm 11 or newer
-- Go 1.27.3
+- Go 1.27.4
 - Docker with Compose
 
 ## Setup
@@ -45,12 +45,16 @@ See [Go services](go-services.md) for toolchain, migrations, key generation, adm
 
 ## Before opening a pull request
 
+CI runs these checks on every pull request, so run them locally first:
+
 ```bash
 npm run typecheck
 npm run lint
 npm run build
 npm run test:user
 ```
+
+The pipeline, required checks, releases, and the single-VM deploy are described in [CI/CD](ci-cd.md).
 
 Integration tests require PostgreSQL:
 
@@ -59,6 +63,22 @@ npm run test:int:user
 ```
 
 Never commit secrets, credentials, `.env`, `.secrets/`, or production data.
+
+## Versioning
+
+The product version is the `version` field in the root `package.json` and follows semantic versioning:
+
+- `x` (major) - a large or breaking update
+- `y` (minor) - a new feature
+- `z` (patch) - a bug fix or small correction
+
+The app injects that value at build time and shows it under **Settings → Build Version**, so a running build always says which release it came from. Bump the version in the same commit as the change it describes:
+
+```bash
+npm version minor --no-git-tag-version
+```
+
+Workspace packages such as `@kit/app` keep their own `private` versions; they are not the product version.
 
 ## Where to document work
 

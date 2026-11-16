@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# @kit/app
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + Vite + TypeScript client for the typing course.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+From the repository root:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev:app
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The app runs at http://localhost:5173. The identity service runs separately on http://localhost:3001 via `npm run dev:user`, after `npm run db:up` and `npm run migrate:up`. Account screens are not part of the app yet.
+
+The product version comes from the root `package.json`, is injected at build time by `vite.config.ts`, and appears under **Settings → Build Version**.
+
+## Layout
+
+- `src/pages/` - page-level orchestration
+- `src/components/` - reusable interface elements
+- `src/curriculum.ts` - chapters, levels, and authored lesson content
+- `src/courseProgress.ts`, `src/progress.ts`, `src/dailyProgress.ts` - progress, scoring, and streaks in local storage
+- `src/sound/` - Howler.js cues
+- `src/assets/` - images and fonts
+
+## Checks
+
+```bash
+npm run typecheck
+npm run lint
+npm run test:lesson
+```
+
+Course behavior is described in [`docs/systems/learning-path.md`](../../docs/systems/learning-path.md).

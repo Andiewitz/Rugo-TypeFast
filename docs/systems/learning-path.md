@@ -1,23 +1,47 @@
 # Learning path
 
-The course has 13 ordered chapters with five levels each: left-hand letters; right-hand letters; both hands; capitalization; punctuation; sentences; numbers; paragraphs and whitespace; symbols; Java basics; Java decisions and arrays; Java classes and methods; and mixed mastery. The learning path shows all 65 levels as circular nodes; their horizontal positions vary between visits, and future levels remain locked. Locked labels use dark, readable text. Each new lesson has an introduction with a practice preview and chapter-specific tips; replays go straight to practice. Each level contains 10 randomized rounds selected from at least ten distinct, level-specific authored examples. Hand drills add fresh key or word practice; short complete examples may be paired to create longer rounds without scrambling their words. The WPM goal and mistake allowance are set by chapter difficulty and apply independently to each round. Finishing a round starts the next, and a failed round can be retried without losing completed rounds. Clearing all ten unlocks the next level and awards 20 XP on its first clear. Replays can improve the saved best stars, but do not repeat the first-clear XP reward.
+The course is a single ordered path of 13 chapters, five levels each: left-hand letters, right-hand letters, both hands, capitalization, punctuation, sentences, numbers, paragraphs and whitespace, symbols, Java basics, Java decisions and arrays, Java classes and methods, and mixed mastery.
 
-The first three chapters accept uppercase and lowercase as equivalent. From chapter four onward, case must match. In whitespace exercises Enter is displayed as ↵ and Tab as ⇥. When Tab is the next expected character, the Tab key inserts it; Shift+Tab remains available for backward navigation. An Insert Tab button is also offered for keyboards without a Tab key. Learners must correct mistakes before advancing. Exceeding a round’s allowance ends that round; finishing it below the WPM goal also fails. Results explain the failure and offer a retry of that round. The final result aggregates completed rounds using their total active time and character attempts; failed attempts that are retried are not included. The arrow at the top left of results returns to the learning path. WPM uses correct characters divided into five-character words over active typing time; pausing does not count.
+## Course structure
 
-Existing six-level course progress is archived in `legacyCourse`. When upgrading from the previous three-level chapters, original completed levels, stars, unlocks, XP and records are retained; the newly added fourth and fifth levels in previously unlocked chapters are available but marked uncompleted. Original chapter-course results are also archived in `previousCourse` and can be reviewed in Profile.
+- The path shows all 65 levels as circular nodes. Horizontal positions vary between visits, and future levels stay locked.
+- Locked labels use dark, readable text.
+- Each new lesson opens with an introduction, a practice preview, and chapter-specific tips. Replays go straight to practice.
+- Every level has 10 randomized rounds drawn from at least ten distinct, authored examples for that level. Hand drills add fresh key or word practice, and short complete examples may be paired into longer rounds without scrambling their words.
+- The WPM goal and mistake allowance come from the chapter's difficulty and apply to each round independently.
+- Finishing a round starts the next one. A failed round can be retried without losing the rounds already cleared.
+- Clearing all ten rounds unlocks the next level and awards 20 XP on the first clear. Replays can improve the saved best stars but do not repeat the XP reward.
 
-Progress, XP, best WPM, activity dates and daily goal totals are saved in the browser's local storage under `rugo-progress`. They are specific to the browser and origin, not synced to an account. If browser storage is unavailable, a notice appears on the main screen. Daily goals reset at the next local calendar day. The league page is informational until an online leaderboard is implemented.
+## Typing rules
 
-Opening an exercise from the path or Practice shows a brief full-screen preparation screen before continuing automatically. Retrying from results begins a fresh attempt directly. The lesson uses a focused layout; navigation and progress return when the learner goes back to the path.
+- The first three chapters accept uppercase and lowercase as equivalent. From chapter four, case must match.
+- In whitespace exercises Enter is displayed as `↵` and Tab as `⇥`. When Tab is the next expected character, the Tab key inserts it; Shift+Tab still moves backward. Keyboards without a Tab key can use the Insert Tab button.
+- Mistakes must be corrected before advancing. Exceeding the round's allowance ends it, and finishing below the WPM goal also fails. Results explain the failure and offer a retry of that round.
+- The final result aggregates the completed rounds from their total active time and character attempts; failed attempts that were retried are not included. The arrow at the top left returns to the learning path.
+- WPM counts correct characters as five-character words over active typing time, so pausing does not lower it.
 
-Rugo is a reusable SVG character with independently animated head, eyes, eyebrows, mouth, body, arms, legs and tail. The learning-path mascot cycles through reusable idle, happy, curious, thinking, surprised, proud and celebration expression templates when activated. He uses a side-facing walk cycle during preparation and reacts to lesson results, with distinct eyes, brows and mouth shapes for celebration, surprise, thought and encouragement. Motion respects reduced-motion settings. On the learning path Rugo stays visible while scrolling; smaller screens use a compact corner placement. The earlier Rive and illustrated experiments are retained as source material and are not used in the app.
+## Progress and storage
 
-On compact screens, the learning path, progress panels, keyboard guide and lesson results adapt to the available width. The fixed mascot uses a smaller footprint on phones.
+- Progress, XP, best WPM, activity dates, and daily goal totals live in the browser's local storage under `rugo-progress`. They belong to that browser and origin, are not synced to an account, and a notice appears on the main screen when storage is unavailable.
+- Daily goals reset at the next local calendar day. The league page is informational until an online leaderboard exists.
+- Six-level course progress is archived in `legacyCourse`. Upgrading from the previous three-level chapters keeps original completed levels, stars, unlocks, XP, and records; the newly added fourth and fifth levels in previously unlocked chapters are available but marked uncompleted.
+- Original chapter-course results are archived in `previousCourse` and can be reviewed in Profile.
 
-Lesson and results action bars stay visible at the bottom of the viewport while content scrolls.
+## Presentation
 
-Sound effects use Howler.js and locally generated short cues for starting a lesson, typing, mistakes, combo milestones and results. Five, ten, twenty, thirty, fifty, seventy-five and one hundred correct keys trigger a short milestone; larger milestones have a distinct cue. Rugo reacts to long combos and offers encouragement after a mistake. The Sound control is available on the learning path, during lessons and on results; the setting persists on the device. Sounds start only after interaction and can be muted.
+- Opening an exercise from the path or Practice shows a brief full-screen preparation screen, then continues automatically. Retrying from results starts a fresh attempt directly.
+- Lessons use a focused layout; navigation and progress return when the learner goes back to the path.
+- Rugo is a reusable SVG character with independently animated head, eyes, eyebrows, mouth, body, arms, legs, and tail. The path mascot cycles through idle, happy, curious, thinking, surprised, proud, and celebration expressions, walks side-on during preparation, and reacts to results with distinct celebration, surprise, thought, and encouragement shapes. Motion respects reduced-motion settings.
+- On the learning path Rugo stays visible while scrolling; smaller screens use a compact corner placement with a smaller footprint.
+- Compact screens adapt the learning path, progress panels, keyboard guide, and results to the available width. Lesson and results action bars stay pinned to the bottom of the viewport while content scrolls.
+- The earlier Rive and illustrated experiments are retained as source material and are not used in the app.
 
+## Sound
 
+- Sound effects use Howler.js with short locally generated cues for starting a lesson, typing, mistakes, combo milestones, and results. Five, ten, twenty, thirty, fifty, seventy-five, and one hundred correct keys each trigger a short milestone, and larger milestones have a distinct cue.
+- Rugo reacts to long combos and offers encouragement after a mistake.
+- The Sound control is available on the learning path, during lessons, and on results; the setting persists on the device. Sounds start only after interaction and can be muted.
 
-Run `npm run test:lesson` to check the curriculum, case and whitespace handling, round generation and aggregation, migration, scoring, correction, stars, mistake summaries and daily rollover rules.
+## Tests
+
+Run `npm run test:lesson` to check the curriculum, case and whitespace handling, round generation and aggregation, migration, scoring, correction, stars, mistake summaries, and daily rollover rules.

@@ -7,7 +7,23 @@ export const ROUNDS_PER_LEVEL = 10
 export type CourseLesson = (typeof lessons)[number]
 
 /** Each level has its own authored examples; combinations add variety on replay. */
-export const roundBanks = [...letterBanks, ...languageBanks, ...javaBanks]
+// Keyed by chapter name so adding or reordering a chapter fails loudly here
+// instead of silently shifting every later chapter onto another content bank.
+export const roundBanks: Record<string, string[][]> = {
+  'Left hand letters': letterBanks[0],
+  'Right hand letters': letterBanks[1],
+  'Both hands': letterBanks[2],
+  Capitalization: languageBanks[0],
+  Punctuation: languageBanks[1],
+  Sentences: languageBanks[2],
+  'Number row': languageBanks[3],
+  'Paragraphs and whitespace': languageBanks[4],
+  'Special characters': languageBanks[5],
+  'Java basics': javaBanks[0],
+  'Java decisions and arrays': javaBanks[1],
+  'Java classes and methods': javaBanks[2],
+  'Mixed mastery': javaBanks[3],
+}
 
 const leftHome = ['asd','sdf','dfg','gfd','fds','dsa','aga','sds','dfd','faf','gag','ads','sag','fad','dad','gas']
 const rightHome = ['hjk','jkl','klh','lhj','jhk','khj','lkh','hjj','jkk','kll','hhj','jkj','klk','hlh','lkl']
@@ -36,8 +52,8 @@ function handPractice(lesson: CourseLesson, random: () => number): string | unde
 
 /** Select genuinely different authored examples once per attempt, with fresh skill-specific practice. */
 export function createRounds(lesson: CourseLesson, random: () => number = Math.random): string[] {
-  const bank = roundBanks[lesson.chapterIndex]?.[lesson.levelIndex]
-  if (!bank || new Set(bank).size < ROUNDS_PER_LEVEL) throw new Error(`Missing round content for ${lesson.name}`)
+  const bank = roundBanks[lesson.chapter]?.[lesson.levelIndex]
+  if (!bank || new Set(bank).size < ROUNDS_PER_LEVEL) throw new Error(`Missing round content for ${lesson.chapter} level ${lesson.levelIndex + 1}`)
   const selected = shuffled([...new Set(bank)], random).slice(0, ROUNDS_PER_LEVEL)
   return selected.map((base, index) => {
     const parts = [base]

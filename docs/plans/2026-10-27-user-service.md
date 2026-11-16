@@ -1,6 +1,6 @@
 # User service: registration, login, account, and authorization
 
-- Status: in progress
+- Status: implemented
 - Owner: engineering
 - Created: 2026-10-27
 - Target: first backend service milestone
@@ -30,7 +30,7 @@ The repository has client applications but no backend service. Accounts need a d
 
 ### Runtime
 
-- Go 1.27.3 module: `typefast/services/user`
+- Go 1.27.4 module: `typefast/services/user`
 - HTTP service on port `3001`
 - PostgreSQL 18
 - Mailpit for local SMTP capture
@@ -94,7 +94,7 @@ The repository has client applications but no backend service. Accounts need a d
 
 ## Risks
 
-- Access tokens remain valid until expiry after suspension, logout, or password reset. Keep the 15-minute TTL and document the window.
+- Access tokens stay valid until they expire, but suspension and password reset are enforced through the revocation snapshot, so they take effect on the next request and on other replicas within `REVOCATION_REFRESH_INTERVAL`. Logout revokes only its session, so that access token lives out its 15 minutes.
 - A shared internal token is a coarse trust boundary. Rotate it and keep the authz endpoint private.
 - Argon2id parameters consume memory under load; rate limits and container limits must be sized together.
 - Email delivery is eventually consistent through the outbox.
@@ -119,6 +119,6 @@ The repository has client applications but no backend service. Accounts need a d
 ## Open questions
 
 - Which production email provider and bounce handling will replace local SMTP?
-- Should suspension invalidate access tokens immediately through a version claim or per-request status lookup?
+- Resolved: suspension is enforced through the in-memory revocation snapshot rather than a version claim or a per-request status lookup.
 - Is a distributed rate limiter needed at the first multi-replica deployment?
 - When should the client application expose account and admin screens?

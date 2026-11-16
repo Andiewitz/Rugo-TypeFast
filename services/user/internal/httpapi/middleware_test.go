@@ -166,6 +166,42 @@ func TestSecurityHeaders(t *testing.T) {
 	if recorder.Header().Get("X-Frame-Options") != "DENY" {
 		t.Fatal("missing frame options")
 	}
+	if recorder.Header().Get("Strict-Transport-Security") != "" {
+		t.Fatal("plaintext development should not advertise HSTS")
+	}
+
+	secure := &Server{logger: discardLogger(), config: config.Config{CookieSecure: true}}
+	secureHandler := secure.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	secureRecorder := httptest.NewRecorder()
+	secureHandler.ServeHTTP(secureRecorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if secureRecorder.Header().Get("Strict-Transport-Security") == "" {
+		t.Fatal("an HTTPS deployment should send HSTS")
+	}
+}
+
+func TestLoginThrottlePerAccount(t *testing.T) {
+	t.Parallel()
+
+	server := &Server{loginLimiter: newLimiter(true)}
+	for attempt := 1; attempt <= 10; attempt++ {
+		if !server.allowLoginAttempt("user@example.com") {
+			t.Fatalf("attempt %d should be allowed", attempt)
+		}
+	}
+	if server.allowLoginAttempt("user@example.com") {
+		t.Fatal("the eleventh attempt should be throttled")
+	}
+	if server.allowLoginAttempt("  User@Example.com ") {
+		t.Fatal("throttling should ignore case and surrounding spaces")
+	}
+	if !server.allowLoginAttempt("other@example.com") {
+		t.Fatal("a different account should not be throttled")
+	}
+	if !server.allowLoginAttempt("") {
+		t.Fatal("a missing email is rejected by validation, not by the throttle")
+	}
 }
 
 func TestWriteError(t *testing.T) {

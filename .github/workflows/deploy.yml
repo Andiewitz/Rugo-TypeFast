@@ -1,0 +1,74 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+      image_tag:
+        description: Image tag to deploy, for example v1.0.0
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      image_tag:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.image_tag }} to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      IMAGE_TAG: ${{ inputs.image_tag }}
+    steps:
+      # Deploys stay inert until a host exists. See docs/contributor-guides/ci-cd.md.
+      - name: Check deployment is enabled
+        run: |
+          if [ "${DEPLOY_ENABLED}" != "true" ]; then
+            echo "::error::Deploy is disabled. Provision the host, add the SSH secrets, and set the repository variable DEPLOY_ENABLED=true."
+            exit 1
+          fi
+        env:
+          DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED }}
+
+      - name: Check the tag was given
+        run: |
+          if [ -z "${IMAGE_TAG}" ]; then
+            echo "::error::image_tag is required."
+            exit 1
+          fi
+
+      - name: Install the deploy key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+
+      - name: Run the deploy script on the host
+        run: |
+          ssh "$SSH_USER@$SSH_HOST" \
+            "cd '$DEPLOY_PATH' && IMAGE_TAG='$IMAGE_TAG' bash scripts/deploy.sh"
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}

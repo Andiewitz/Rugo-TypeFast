@@ -32,6 +32,10 @@ Coverage includes:
 - Outbox send, retry, unsupported topic, and invalid payload.
 - HTTP middleware: JSON decoding, CORS, security headers, request IDs, origin checks, rate limits, and problem responses.
 - Token revocation snapshot: issue-time comparisons, snapshot replacement, retention on refresh failure, refresher loop shutdown, and concurrent access.
+- Retention sweep: expiry cutoffs for tokens and sessions, the inspection window for delivered outbox rows, continuing after one table fails, and the startup sweep plus tick loop.
+- Email links: verification and reset tokens travel in the URL fragment, never in the query string.
+- Metrics: the API mux answers `404` for `/metrics` while the dedicated listener serves the registry.
+- Configuration: the metrics listener default and the `off` switch.
 
 ## Integration tests
 
@@ -43,9 +47,10 @@ Run:
 
 ```bash
 npm run db:up
-npm run migrate:up
 npm run test:int:user
 ```
+
+The suite prepares its own test database, so a separate migration step is only needed for the development database a developer runs the API against.
 
 Direct command:
 
@@ -55,11 +60,12 @@ go -C tests test ./int/user/... -count=1
 
 Environment:
 
-- `TEST_DATABASE_URL` preferred.
-- Falls back to `DATABASE_URL`.
-- Falls back to the local Compose URL.
+- `TEST_DATABASE_URL` selects the database. Its name must be lowercase and end in `_test`.
+- Without it, the suite uses `postgres://kit:kit_dev_password@localhost:5432/kit_test?sslmode=disable`.
+- `DATABASE_URL` is deliberately ignored so a local development database is never touched.
+- The harness creates the test database when it is missing, then applies migrations.
 
-The harness truncates `users`, `sessions`, `one_time_tokens`, `audit_events`, and `outbox_events` before each harness instance. Roles and permissions seeded by migration remain. Never point these tests at shared or production data.
+The harness truncates `users`, `sessions`, `one_time_tokens`, `audit_events`, and `outbox_events` before each harness instance. Roles and permissions seeded by migration remain. The name check exists because that truncation is destructive: a URL that does not point at a `_test` database stops the run before any test executes. Never point these tests at shared or production data.
 
 Covered flows:
 
@@ -71,9 +77,10 @@ Covered flows:
 - Internal authorization checks and invalid internal token rejection.
 - Audit event visibility for account actions.
 - CSRF origin rejection, content-type enforcement, weak password rejection, invalid token handling.
-- Health and readiness endpoints.
+- Health and readiness endpoints, and the absence of a metrics route on the API port.
 - Ban enforcement: a suspended account is rejected with `token_revoked` on every authenticated route, refresh and login are refused, other accounts keep working, reactivation leaves pre-ban tokens dead, a polling replica picks the ban up, and the marker plus session revocation are recorded.
 - Cognito identity storage: creating a verified user from a subject, duplicate subject and email rejection, subject lookup, linking to an existing local account with idempotent relink, re-point and cross-account conflicts, soft-deleted accounts, and blank-input validation.
+- Retention against real rows: expired tokens and sessions deleted, live and revoked-but-unexpired sessions kept, delivered outbox rows past the window deleted while recent and pending rows survive, and a backlog larger than one batch drained completely.
 
 Email is not sent during integration tests. The outbox payload is read directly so verification and reset tokens can be extracted.
 

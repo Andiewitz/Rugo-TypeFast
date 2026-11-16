@@ -9,5 +9,4 @@
 | [Systems](systems/) | Architecture and ownership notes for each system |
 | [Tests Docs](tests-docs/) | Test strategy, conventions, and tooling decisions |
 
-Test suites live outside this directory in [`/tests`](../tests/).
-- [Observability](systems/observability.md) - Monitoring baseline.
+Test suites live outside this directory in [`/tests`](../tests/). System notes include the [observability stack](systems/observability.md).

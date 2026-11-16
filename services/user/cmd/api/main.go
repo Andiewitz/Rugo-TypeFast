@@ -21,6 +21,7 @@ import (
 	"typefast/services/user/internal/outbox"
 	"typefast/services/user/internal/recovery"
 	"typefast/services/user/internal/register"
+	"typefast/services/user/internal/retention"
 	"typefast/services/user/internal/revocation"
 	"typefast/services/user/internal/session"
 	"typefast/services/user/internal/storage/migrations"
@@ -61,6 +62,9 @@ func run() error {
 	if !cfg.RateLimit {
 		logger.Warn("rate limiting is disabled")
 	}
+	if cfg.Env == "production" && cfg.MetricsAddr == "" {
+		logger.Warn("METRICS_ADDR is off; no metrics listener is running")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -99,12 +103,12 @@ func run() error {
 	registerService := register.NewService(store, cfg.PublicAppURL, store, logger)
 	loginService := login.NewService(store, sessionService, store, logger)
 	accountService := account.NewService(store, store, logger)
-	recoveryService := recovery.NewService(store, cfg.PublicAppURL, store, logger)
+	recoveryService := recovery.NewService(store, cfg.PublicAppURL, store, revocations, logger)
 	authorizationService := authorization.NewService(store, store, revocations, logger)
 
 	var sender mailer.Mailer = &mailer.Log{Logger: logger}
 	if cfg.Mailer == "smtp" {
-		sender = &mailer.SMTP{Addr: cfg.SMTPAddr, From: cfg.MailFrom}
+		sender = &mailer.SMTP{Addr: cfg.SMTPAddr, From: cfg.MailFrom, TLSMode: cfg.SMTPTLS}
 	}
 
 	worker := &outbox.Worker{
@@ -114,6 +118,20 @@ func run() error {
 		Interval: time.Second,
 	}
 	go worker.Run(ctx)
+
+	// Expired tokens and sessions are dead the moment they expire, but nothing
+	// else ever removes them, so the sweep is what keeps those tables bounded.
+	if cfg.RetentionInterval > 0 {
+		sweeper := &retention.Sweeper{
+			Store:        store,
+			Logger:       logger,
+			Interval:     cfg.RetentionInterval,
+			OutboxWindow: cfg.RetentionOutboxWindow,
+		}
+		go sweeper.Run(ctx)
+	} else if cfg.Env == "production" {
+		logger.Warn("RETENTION_INTERVAL is 0; expired tokens, expired sessions, and delivered outbox rows will accumulate")
+	}
 
 	metrics := observability.NewPrometheus()
 	server := httpapi.New(
@@ -136,20 +154,49 @@ func run() error {
 		listenAddr = ":" + cfg.Port
 	}
 
-	httpServer := &http.Server{
-		Addr:              listenAddr,
-		Handler:           server.Routes(),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
+	type listener struct {
+		name   string
+		addr   string
+		server *http.Server
 	}
 
-	errCh := make(chan error, 1)
-	go func() {
-		logger.Info("listening", "addr", listenAddr)
-		errCh <- httpServer.ListenAndServe()
-	}()
+	listeners := []listener{{
+		name: "api",
+		addr: listenAddr,
+		server: &http.Server{
+			Addr:              listenAddr,
+			Handler:           server.Routes(),
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       15 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		},
+	}}
+
+	// Prometheus scrapes a listener of its own. Keeping metrics off the API port
+	// means the internet-facing routes never serve them.
+	if cfg.MetricsAddr != "" {
+		listeners = append(listeners, listener{
+			name: "metrics",
+			addr: cfg.MetricsAddr,
+			server: &http.Server{
+				Addr:              cfg.MetricsAddr,
+				Handler:           observability.MetricsHandler(metrics),
+				ReadHeaderTimeout: 5 * time.Second,
+				ReadTimeout:       10 * time.Second,
+				WriteTimeout:      10 * time.Second,
+				IdleTimeout:       30 * time.Second,
+			},
+		})
+	}
+
+	errCh := make(chan error, len(listeners))
+	for _, l := range listeners {
+		go func(l listener) {
+			logger.Info("listening", "service", l.name, "addr", l.addr)
+			errCh <- l.server.ListenAndServe()
+		}(l)
+	}
 
 	select {
 	case err := <-errCh:
@@ -162,8 +209,10 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		return err
+	for _, l := range listeners {
+		if err := l.server.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
 	}
 	return nil
 }

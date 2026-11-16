@@ -13,47 +13,83 @@ import (
 	"time"
 )
 
+// developmentInternalToken is the value published in .env.example and Compose.
+// A deployment that keeps it has a shared secret anyone can read.
+const developmentInternalToken = "dev-internal-token-change-me"
+
 type Config struct {
-	Env               string
-	Port              string
-	DatabaseURL       string
-	AppOrigin         string
-	PublicAppURL      string
-	JWTPrivateKey     ed25519.PrivateKey
-	JWTKeyID          string
-	JWTIssuer         string
-	JWTAudience       string
-	JWTKeyIsRandom    bool
-	AccessTTL         time.Duration
-	RefreshTTL        time.Duration
-	CookieSecure      bool
-	CookieDomain      string
-	Mailer            string
-	SMTPAddr          string
-	MailFrom          string
-	InternalToken     string
-	RateLimit         bool
-	LogLevel          slog.Level
-	AutoMigrate       bool
-	RevocationRefresh time.Duration
+	Env                   string
+	Port                  string
+	MetricsAddr           string
+	DatabaseURL           string
+	AppOrigin             string
+	PublicAppURL          string
+	JWTPrivateKey         ed25519.PrivateKey
+	JWTKeyID              string
+	JWTIssuer             string
+	JWTAudience           string
+	JWTKeyIsRandom        bool
+	AccessTTL             time.Duration
+	RefreshTTL            time.Duration
+	CookieSecure          bool
+	CookieDomain          string
+	Mailer                string
+	SMTPAddr              string
+	MailFrom              string
+	SMTPTLS               string
+	InternalToken         string
+	RateLimit             bool
+	LogLevel              slog.Level
+	AutoMigrate           bool
+	RevocationRefresh     time.Duration
+	RetentionInterval     time.Duration
+	RetentionOutboxWindow time.Duration
 }
 
 func Load() (Config, error) {
-	env := getenv("APP_ENV", "development")
+	env := strings.ToLower(getenv("APP_ENV", "development"))
+	switch env {
+	case "development", "test", "production":
+	default:
+		return Config{}, fmt.Errorf("APP_ENV must be development, test, or production, got %q", env)
+	}
+
 	cfg := Config{
 		Env:           env,
 		Port:          getenv("PORT", "3001"),
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		MetricsAddr:   strings.TrimSpace(getenv("METRICS_ADDR", "127.0.0.1:9091")),
+		DatabaseURL:   strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		AppOrigin:     strings.TrimRight(getenv("APP_ORIGIN", "http://localhost:5173"), "/"),
 		PublicAppURL:  strings.TrimRight(getenv("PUBLIC_APP_URL", "http://localhost:5173"), "/"),
 		JWTKeyID:      getenv("JWT_KEY_ID", "dev-1"),
 		JWTIssuer:     getenv("JWT_ISSUER", "kit-user"),
 		JWTAudience:   getenv("JWT_AUDIENCE", "kit-api"),
-		CookieDomain:  os.Getenv("COOKIE_DOMAIN"),
+		CookieDomain:  strings.TrimSpace(os.Getenv("COOKIE_DOMAIN")),
 		Mailer:        getenv("MAILER", "log"),
 		SMTPAddr:      getenv("SMTP_ADDR", "localhost:1025"),
 		MailFrom:      getenv("MAIL_FROM", "no-reply@kit.local"),
-		InternalToken: os.Getenv("INTERNAL_SERVICE_TOKEN"),
+		InternalToken: strings.TrimSpace(os.Getenv("INTERNAL_SERVICE_TOKEN")),
+	}
+
+	// Metrics get their own listener so the internet-facing port exposes no
+	// scrape surface. "off" disables the listener entirely.
+	if strings.EqualFold(cfg.MetricsAddr, "off") {
+		cfg.MetricsAddr = ""
+	}
+
+	smtpTLSDefault := "none"
+	if env == "production" {
+		smtpTLSDefault = "starttls"
+	}
+	cfg.SMTPTLS = strings.ToLower(strings.TrimSpace(getenv("SMTP_TLS", smtpTLSDefault)))
+	switch cfg.SMTPTLS {
+	case "none", "opportunistic", "starttls":
+	default:
+		return Config{}, fmt.Errorf("SMTP_TLS must be none, opportunistic, or starttls, got %q", cfg.SMTPTLS)
+	}
+
+	if env == "production" && cfg.InternalToken == developmentInternalToken {
+		return Config{}, errors.New("INTERNAL_SERVICE_TOKEN still has the development default; set a unique secret or leave it empty to disable internal authorization")
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -99,6 +135,22 @@ func Load() (Config, error) {
 	}
 	if cfg.RevocationRefresh <= 0 {
 		return Config{}, errors.New("REVOCATION_REFRESH_INTERVAL must be positive")
+	}
+
+	cfg.RetentionInterval, err = durationEnv("RETENTION_INTERVAL", time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.RetentionInterval < 0 {
+		return Config{}, errors.New("RETENTION_INTERVAL must not be negative; use 0 to disable the sweep")
+	}
+
+	cfg.RetentionOutboxWindow, err = durationEnv("RETENTION_OUTBOX_WINDOW", 7*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.RetentionOutboxWindow <= 0 {
+		return Config{}, errors.New("RETENTION_OUTBOX_WINDOW must be positive")
 	}
 
 	level, err := logLevel(getenv("LOG_LEVEL", "info"))

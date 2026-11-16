@@ -2,6 +2,11 @@ export const COURSE_VERSION = 4
 
 type SavedCourse = { completed: number; stars?: number[]; courseVersion?: number; previousCourse?: { completed: number; stars: number[] }; unearnedLevels?: number[] }
 
+/** A level earns its first-clear reward only when it was never completed before. */
+export function isFirstClear(progress: { completed: number; unearnedLevels: number[] }, index: number) {
+  return index >= progress.completed || progress.unearnedLevels.includes(index)
+}
+
 /** Retain old unlocks and ratings while marking newly added levels as unearned. */
 export function migrateCourseProgress<T extends SavedCourse>(value: T) {
   if (value.courseVersion === COURSE_VERSION) return value

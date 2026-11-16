@@ -1,7 +1,7 @@
 import { sanitizeStars } from './components/lesson/savedStars'
 import { resetDailyTotals } from './dailyProgress'
 import { COURSE_VERSION, migrateCourseProgress } from './courseProgress'
-export type Page = 'Learn' | 'Practice' | 'Leagues' | 'Quests' | 'Profile'
+export type Page = 'Learn' | 'Practice' | 'Leagues' | 'Quests' | 'Profile' | 'Settings'
 export type Progress = { completed: number; stars: number[]; courseVersion: number; unearnedLevels: number[]; legacyCourse?: { completed: number; stars: number[] }; previousCourse?: { completed: number; stars: number[] }; xp: number; bestWpm: number; lessons: number; seconds: number; dates: string[]; today: string; todayLessons: number; todaySeconds: number; todayBest: number }
 export { chapters, lessons } from './curriculum'
 import { lessons } from './curriculum'

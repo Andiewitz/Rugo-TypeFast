@@ -18,7 +18,6 @@ Tests that exercise multiple parts of a system through real boundaries such as H
 
 ```bash
 npm run db:up
-npm run migrate:up
 npm run test:int:user
 ```
 
@@ -28,7 +27,7 @@ Direct command:
 go -C tests test ./int/user/... -count=1
 ```
 
-Use `TEST_DATABASE_URL` to isolate the run. The user-service harness truncates identity tables before each suite, so never point it at shared or production data.
+The user-service harness creates and migrates a dedicated database ending in `_test`, then truncates the identity tables before each suite. Set `TEST_DATABASE_URL` to choose a different one, and never point it at shared or production data.
 
 ## Tooling
 

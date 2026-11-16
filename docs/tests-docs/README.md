@@ -29,7 +29,7 @@ npm run test:int:user
 npm run test:user
 ```
 
-Integration tests require `npm run db:up` and `npm run migrate:up`. Use `TEST_DATABASE_URL` for a dedicated test database; the harness truncates identity tables.
+Integration tests need PostgreSQL running (`npm run db:up`). The harness creates and migrates its own `_test` database and truncates the identity tables, so no separate migration step is needed. Set `TEST_DATABASE_URL` to choose a different scratch database; its name must end in `_test`, and `DATABASE_URL` is ignored.
 
 ## Conventions
 
@@ -43,7 +43,8 @@ Integration tests require `npm run db:up` and `npm run migrate:up`. Use `TEST_DA
 
 ## Per-system documentation
 
-- [User service](user-service.md)
+- [User service](user-service.md) - Layers, commands, and covered flows.
+- [Observability](observability.md) - Live stack validation checks.
 
 ## Adding a suite
 
@@ -51,4 +52,3 @@ Integration tests require `npm run db:up` and `npm run migrate:up`. Use `TEST_DA
 2. Add the runner and configuration at the root or nearest module.
 3. Add root scripts so one command runs each category.
 4. Update this document and the relevant `tests/*/README.md`.
-- [`observability.md`](observability.md) - Live stack validation checks.

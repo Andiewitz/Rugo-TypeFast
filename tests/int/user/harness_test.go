@@ -16,10 +16,12 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"typefast/services/user/internal/account"
@@ -78,14 +80,64 @@ type problemPayload struct {
 	Detail string `json:"detail"`
 }
 
+const defaultTestDatabaseURL = "postgres://kit:kit_dev_password@localhost:5432/kit_test?sslmode=disable"
+
+// databaseURL deliberately ignores DATABASE_URL. The application's development
+// database is the usual value of that variable, and every harness instance
+// truncates the identity tables.
 func databaseURL() string {
-	if value := os.Getenv("TEST_DATABASE_URL"); value != "" {
+	if value := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL")); value != "" {
 		return value
 	}
-	if value := os.Getenv("DATABASE_URL"); value != "" {
-		return value
+	return defaultTestDatabaseURL
+}
+
+var testDatabaseName = regexp.MustCompile(`^[a-z0-9_]+_test$`)
+
+func testDatabaseNameFrom(rawURL string) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse database URL: %w", err)
 	}
-	return "postgres://kit:kit_dev_password@localhost:5432/kit?sslmode=disable"
+	name := strings.TrimPrefix(parsed.Path, "/")
+	if !testDatabaseName.MatchString(name) {
+		return "", fmt.Errorf("refusing to run against database %q: the suite truncates every identity table, so the database name must be lowercase and end in _test (for example kit_test)", name)
+	}
+	return name, nil
+}
+
+// ensureTestDatabase rejects anything that is not an obvious scratch database
+// and creates it when it is missing, so a fresh checkout needs no manual setup.
+func ensureTestDatabase(ctx context.Context, rawURL string) error {
+	name, err := testDatabaseNameFrom(rawURL)
+	if err != nil {
+		return err
+	}
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse database URL: %w", err)
+	}
+	maintenance := *parsed
+	maintenance.Path = "/postgres"
+
+	connection, err := pgx.Connect(ctx, maintenance.String())
+	if err != nil {
+		return fmt.Errorf("connect to the postgres maintenance database: %w", err)
+	}
+	defer connection.Close(ctx)
+
+	var exists bool
+	if err := connection.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, name).Scan(&exists); err != nil {
+		return fmt.Errorf("look up database %q: %w", name, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := connection.Exec(ctx, `CREATE DATABASE "`+name+`"`); err != nil {
+		return fmt.Errorf("create test database %q: %w", name, err)
+	}
+	return nil
 }
 
 func TestMain(m *testing.M) {
@@ -95,7 +147,13 @@ func TestMain(m *testing.M) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := migrations.Up(ctx, databaseURL()); err != nil {
+
+	target := databaseURL()
+	if err := ensureTestDatabase(ctx, target); err != nil {
+		fmt.Fprintln(os.Stderr, "integration tests:", err)
+		os.Exit(1)
+	}
+	if err := migrations.Up(ctx, target); err != nil {
 		fmt.Fprintln(os.Stderr, "integration tests require a migrated database:", err)
 		os.Exit(1)
 	}
@@ -175,7 +233,7 @@ func newHarness(t *testing.T) *harness {
 	registerService := register.NewService(store, cfg.PublicAppURL, store, logger)
 	loginService := login.NewService(store, sessionService, store, logger)
 	accountService := account.NewService(store, store, logger)
-	recoveryService := recovery.NewService(store, cfg.PublicAppURL, store, logger)
+	recoveryService := recovery.NewService(store, cfg.PublicAppURL, store, revocations, logger)
 	authorizationService := authorization.NewService(store, store, revocations, logger)
 
 	metrics := observability.NewPrometheus()

@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/time/rate"
 
 	"typefast/services/user/internal/apperr"
 	"typefast/services/user/internal/session"
@@ -89,6 +91,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, r, err, s.logger)
+		return
+	}
+
+	if !s.allowLoginAttempt(request.Email) {
+		writeError(w, r, apperr.New(apperr.KindRateLimited, "rate_limited", "Too many sign-in attempts. Try again later."), s.logger)
 		return
 	}
 
@@ -194,6 +201,17 @@ func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	s.clearRefreshCookie(w)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+}
+
+// allowLoginAttempt throttles by account as well as by client address, so one
+// host cannot spray a single account and a botnet cannot spread attempts over
+// many addresses.
+func (s *Server) allowLoginAttempt(email string) bool {
+	key := strings.ToLower(strings.TrimSpace(email))
+	if key == "" {
+		return true
+	}
+	return s.loginLimiter.Allow(key, rate.Every(2*time.Second), 10)
 }
 
 func (s *Server) setRefreshCookie(w http.ResponseWriter, value string, expires time.Time) {

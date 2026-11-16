@@ -76,7 +76,7 @@ export const chapters = baseChapters.map((chapter, index) => ({ ...chapter, dril
 export const LEVELS_PER_CHAPTER = 5
 
 export const lessons = chapters.flatMap((chapter, chapterIndex) => chapter.drills.map((drill, levelIndex) => ({
-  ...drill, chapterIndex, levelIndex, caseSensitive: chapter.caseSensitive,
+  ...drill, chapter: chapter.title, chapterIndex, levelIndex, caseSensitive: chapter.caseSensitive,
   minWpm: Math.min(30, 12 + chapter.difficulty * 2 + levelIndex),
   maxMistakes: chapter.difficulty <= 2 ? 5 : chapter.difficulty <= 5 ? 4 : 3,
 })))

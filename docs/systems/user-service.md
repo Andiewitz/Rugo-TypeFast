@@ -1,7 +1,7 @@
 # User service
 
 - Location: `services/user`
-- Runtime: Go 1.27.3
+- Runtime: Go 1.27.4
 - Datastore: PostgreSQL 18
 - Default port: `3001`
 - Health: `GET /healthz`, readiness: `GET /readyz`
@@ -28,6 +28,7 @@ services/user/cmd/api
      +-- internal/account        profile, sessions, audit history
      +-- internal/authorization  admin users/roles and permission checks
      +-- internal/outbox         transactional email worker
+     +-- internal/retention      periodic deletion of dead rows
      +-- internal/storage        pgx store and goose migrations
      |
      +--> PostgreSQL
@@ -57,8 +58,38 @@ The Docker image contains all four binaries under `/app`; the default entrypoint
 - CORS allows only `APP_ORIGIN` with credentials.
 - State-changing requests with an `Origin` header must match `APP_ORIGIN`.
 - JSON bodies are capped at 1 MiB and must not contain unknown fields.
-- Rate limits are applied per client IP and path for auth endpoints.
-- Security headers include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and restrictive permissions policy.
+
+## HTTP routes
+
+Limits are token buckets per client address: the average refill and the burst.
+
+| Method | Path | Access | Limit |
+| --- | --- | --- | --- |
+| `GET` | `/healthz` | none | none |
+| `GET` | `/readyz` | none | none |
+| `POST` | `/v1/auth/register` | none | 1 per 12s, burst 5 |
+| `POST` | `/v1/auth/email/verify` | none | 1 per 3s, burst 10 |
+| `POST` | `/v1/auth/email/resend` | none | 1 per 12s, burst 5 |
+| `POST` | `/v1/auth/login` | none | 1 per 6s, burst 10, plus a per-account throttle |
+| `POST` | `/v1/auth/refresh` | refresh cookie | 1 per 2s, burst 30 |
+| `POST` | `/v1/auth/logout` | bearer, any permission | none |
+| `POST` | `/v1/auth/password/forgot` | none | 1 per 12s, burst 5 |
+| `POST` | `/v1/auth/password/reset` | none | 1 per 6s, burst 5 |
+| `GET` | `/v1/account` | bearer `account.read` | none |
+| `PATCH` | `/v1/account` | bearer `account.update` | none |
+| `GET` | `/v1/account/sessions` | bearer `sessions.read` | none |
+| `DELETE` | `/v1/account/sessions/{id}` | bearer `sessions.revoke` | none |
+| `GET` | `/v1/account/events` | bearer `account.read` | none |
+| `GET` | `/v1/admin/users` | bearer `users.read` | none |
+| `PATCH` | `/v1/admin/users/{id}/status` | bearer `users.manage` | none |
+| `POST` | `/v1/admin/users/{id}/roles` | bearer `roles.manage` | none |
+| `DELETE` | `/v1/admin/users/{id}/roles/{role}` | bearer `roles.manage` | none |
+| `GET` | `/v1/admin/roles` | bearer `roles.manage` | none |
+| `POST` | `/internal/v1/authz/check` | `X-Internal-Token` | 1 per 50ms, burst 20 |
+
+Error responses use the problem shape below. Success bodies carry the account, session, role, or event payloads described in the feature sections.
+- Rate limits are applied per client IP and path for auth endpoints; login is additionally throttled per account, so one host cannot spray a single address.
+- Security headers include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and restrictive permissions policy. `Strict-Transport-Security` is added whenever `COOKIE_SECURE` marks an HTTPS deployment.
 
 ## Authentication flows
 
@@ -113,7 +144,7 @@ Each replica keeps an in-memory snapshot of revoked accounts. A request is rejec
 
 - Reset requests are accepted for unknown accounts without revealing existence.
 - Reset tokens are hashed, single-use, and expire in 30 minutes.
-- A successful reset updates the password and revokes all sessions.
+- A successful reset updates the password, revokes all sessions, and stamps `users.revoked_before` in the same statement. Access tokens issued before the reset are refused on the replica that handled it immediately, and on other replicas within `REVOCATION_REFRESH_INTERVAL`.
 
 ## Authorization model
 
@@ -136,7 +167,7 @@ Content-Type: application/json
 {"user_id":"<uuid>","permission":"users.read"}
 ```
 
-The endpoint is disabled when `INTERNAL_SERVICE_TOKEN` is empty and returns `401` for a wrong token.
+The endpoint is disabled when `INTERNAL_SERVICE_TOKEN` is empty and returns `401` for a wrong token. It is rate limited per client address, and production startup fails if the token still holds the value published in `.env.example`.
 
 ## Data and migrations
 
@@ -169,20 +200,39 @@ Registration and recovery handlers write email messages to `outbox_events` in th
 
 `MAILER=log` records only metadata and does not include message bodies. `MAILER=smtp` uses `SMTP_ADDR` and `MAIL_FROM`. Local Compose uses Mailpit at `localhost:8025` for inspection.
 
+Verification and reset links put the token in the URL fragment (`/verify-email#token=…`), so the browser never sends it to the server in a request line, access log, or `Referer` header. The client reads `location.hash` and posts the token to the verify or reset endpoint.
+
+Message bodies carry single-use verification and reset tokens, so `SMTP_TLS` controls whether the hop is protected: `starttls` requires the relay to upgrade and is the production default, `opportunistic` upgrades when the relay offers it, and `none` sends in clear text. Development defaults to `none` because the local Mailpit has no certificate; a clear-text relay must never carry those links.
+
 ## Observability
 
 - Structured JSON logs include request method, path, status, duration, bytes, IP, and request ID.
 - Internal errors are logged with the request ID; clients receive a generic detail.
+- Recovered panics increment `kit_user_panics_total` and log a `stack_trace` with the request ID.
 - Audit events record authentication, account, session, and admin actions.
 - Health endpoints support container and load-balancer checks.
 
-No metrics or tracing exporter is configured yet.
+### Metrics
+
+`cmd/api` registers a Prometheus registry with the `kit_user` subsystem and serves it at `GET /metrics` on a listener of its own, `METRICS_ADDR`, which defaults to `127.0.0.1:9091`; `off` disables the listener. The API port serves no metrics route, so a scrape never reaches the internet-facing surface. Prometheus collects it with the `kit-user` job every 15 seconds.
+
+| Metric | Type | Labels |
+| --- | --- | --- |
+| `kit_user_http_requests_total` | counter | `method`, `path`, `status` |
+| `kit_user_http_request_duration_seconds` | histogram | `method`, `path` |
+| `kit_user_panics_total` | counter | none |
+
+The latency histogram uses buckets from 5 ms to 10 s. The `path` label is not the raw request path: `observability.RouteLabel` folds it into `health`, `auth_user`, `auth_session`, `account`, `admin`, `internal`, `metrics`, or `other`, which keeps series cardinality fixed as traffic and identifiers grow.
+
+A panicked request increments `kit_user_panics_total` but not `kit_user_http_requests_total`, because the recoverer wraps the logging middleware and the panic skips its recording. Alert on `kit_user_panics_total` for those requests rather than on error rates alone.
+
+No tracing exporter is configured yet.
 
 ## Configuration
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `APP_ENV` | `development` | Production requires explicit database and JWT key |
+| `APP_ENV` | `development` | `development`, `test`, or `production`; any other value stops startup. Production requires explicit database and JWT key |
 | `PORT` | `3001` | Listen port |
 | `DATABASE_URL` | local dev URL | Required in production |
 | `APP_ORIGIN` | `http://localhost:5173` | CORS and origin checks |
@@ -198,9 +248,13 @@ No metrics or tracing exporter is configured yet.
 | `MAILER` | `log` | `log` or `smtp` |
 | `SMTP_ADDR` | `localhost:1025` | SMTP server |
 | `MAIL_FROM` | `no-reply@kit.local` | Envelope sender |
+| `SMTP_TLS` | `none` in development, `starttls` in production | `starttls`, `opportunistic`, or `none`; `starttls` refuses a relay that cannot upgrade |
 | `INTERNAL_SERVICE_TOKEN` | empty | Enables internal authz endpoint |
 | `RATE_LIMIT_ENABLED` | `true` | In-memory rate limiting |
+| `METRICS_ADDR` | `127.0.0.1:9091` | Prometheus listener, separate from `PORT`; `off` disables it |
 | `REVOCATION_REFRESH_INTERVAL` | `5s` | How often replicas reload the revocation snapshot |
+| `RETENTION_INTERVAL` | `1h` | How often the retention sweep deletes dead rows; `0` disables it |
+| `RETENTION_OUTBOX_WINDOW` | `168h` | How long delivered outbox rows are kept for inspection |
 | `LOG_LEVEL` | `info` | debug, info, warn, error |
 | `AUTO_MIGRATE` | `false` | Apply migrations at API startup |
 
@@ -213,7 +267,8 @@ From the repository root, generate a key with `go run ./services/user/cmd/keygen
 - The refresh cookie is hardcoded to `SameSite=Lax`; this works when app and API are the same site. If app and API are on different registrable domains, add a configurable `SameSite=None; Secure` option first.
 - IP-based rate limits and audit entries use the TCP peer address. Because they do not trust proxy headers yet, either terminate traffic direct at this service or add trusted-proxy handling before deploying behind a load balancer.
 - Outbox email delivery is at least once: a process crash between SMTP send and the successful update can duplicate a message.
-- There is no retention job yet for expired sessions, consumed tokens, or sent outbox rows. Schedule cleanup before production data grows.
+- Retention runs inside the API process every `RETENTION_INTERVAL`: expired one-time tokens, expired sessions, and outbox rows delivered more than `RETENTION_OUTBOX_WINDOW` ago are deleted in batches of 1000, so a backlog drains over several ticks. Revoked sessions are kept until their refresh token expires. `RETENTION_INTERVAL=0` disables the sweep, and production warns at startup.
+- Prometheus must scrape `METRICS_ADDR`, not `PORT`. Bind it to a private interface and leave the API port without a metrics route.
 - Token rotation uses a single Ed25519 key; key rotation requires deploying a new key and letting old access tokens expire.
 
 ## Failure behavior

@@ -10,6 +10,7 @@ Architecture, ownership, and operational notes for each system in the repository
 - Runtime: browser
 - Stack: React 19, Vite, TypeScript
 - Responsibility: interactive product interface
+- Documentation: [`client-app.md`](client-app.md)
 
 ### @kit/web
 
@@ -17,11 +18,12 @@ Architecture, ownership, and operational notes for each system in the repository
 - Runtime: static build
 - Stack: Astro 7
 - Responsibility: public website and content
+- Documentation: [`../../client/web/README.md`](../../client/web/README.md)
 
 ### User service
 
 - Location: `services/user`
-- Runtime: Go 1.27.3
+- Runtime: Go 1.27.4
 - Stack: PostgreSQL 18, pgx, goose, Ed25519 JWT
 - Responsibility: identity, sessions, accounts, roles, audit events
 - Health checks: `GET /healthz`, `GET /readyz` on port `3001`
@@ -42,4 +44,5 @@ Architecture, ownership, and operational notes for each system in the repository
 4. Declare dependencies in that system, not at the repository root.
 5. Add a system document here with runtime, ownership, health checks, and failure behavior.
 6. Add tests in the matching `/tests` category and document commands.
-- [`observability.md`](observability.md) - Prometheus, Grafana, Loki, and Promtail stack
+
+See [`observability.md`](observability.md) for the Prometheus, Grafana, Loki, and Promtail stack.

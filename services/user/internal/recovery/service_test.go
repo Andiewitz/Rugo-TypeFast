@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -53,10 +54,26 @@ func (r *recorder) Record(_ context.Context, event audit.Event) error {
 	return nil
 }
 
+type fakeRevoker struct {
+	users  []uuid.UUID
+	before []time.Time
+}
+
+func (r *fakeRevoker) MarkIssuedBefore(userID uuid.UUID, before time.Time) {
+	r.users = append(r.users, userID)
+	r.before = append(r.before, before)
+}
+
 func newService(store *fakeStore) (*recovery.Service, *recorder) {
+	service, events, _ := newServiceWithRevoker(store)
+	return service, events
+}
+
+func newServiceWithRevoker(store *fakeStore) (*recovery.Service, *recorder, *fakeRevoker) {
 	events := &recorder{}
+	revoker := &fakeRevoker{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return recovery.NewService(store, "http://app.local", events, logger), events
+	return recovery.NewService(store, "http://app.local", events, revoker, logger), events, revoker
 }
 
 func TestForgotPasswordValidation(t *testing.T) {
@@ -85,7 +102,7 @@ func TestForgotPasswordQueuesHashedToken(t *testing.T) {
 	if store.email != "user@example.com" {
 		t.Fatalf("email = %q", store.email)
 	}
-	if !strings.Contains(store.message.Text, "/reset-password?token=") {
+	if !strings.Contains(store.message.Text, "/reset-password#token=") {
 		t.Fatal("reset link missing")
 	}
 	rawToken := extractToken(t, store.message.Text)
@@ -132,11 +149,19 @@ func TestResetPasswordHashesNewPassword(t *testing.T) {
 	t.Parallel()
 
 	userID := uuid.Must(uuid.NewV7())
-	store := &fakeStore{resetUser: identity.User{ID: userID}}
-	service, events := newService(store)
+	resetAt := time.Now().UTC()
+	store := &fakeStore{resetUser: identity.User{ID: userID, UpdatedAt: resetAt}}
+	service, events, revoker := newServiceWithRevoker(store)
 
 	if err := service.ResetPassword(context.Background(), "raw-token", "a-new-long-password", "127.0.0.1"); err != nil {
 		t.Fatal(err)
+	}
+
+	if len(revoker.users) != 1 || revoker.users[0] != userID {
+		t.Fatalf("revoked users = %v, want [%s]", revoker.users, userID)
+	}
+	if !revoker.before[0].Equal(resetAt) {
+		t.Fatalf("marker = %v, want %v", revoker.before[0], resetAt)
 	}
 	if !bytes.Equal(store.resetHash, tokenpkg.Hash("raw-token")) {
 		t.Fatal("reset token hash mismatch")

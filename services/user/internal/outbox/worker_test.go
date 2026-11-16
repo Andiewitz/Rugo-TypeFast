@@ -111,6 +111,59 @@ func TestProcessOnceRetriesFailedEmail(t *testing.T) {
 	}
 }
 
+func emailMessage(t *testing.T, attempts int) outbox.Message {
+	t.Helper()
+	encoded, err := json.Marshal(mailer.Message{To: "user@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return outbox.Message{ID: uuid.Must(uuid.NewV7()), Topic: outbox.TopicEmailSend, Payload: encoded, Attempts: attempts}
+}
+
+// A message that keeps failing must wait progressively longer, up to an hour.
+func TestRetryBackoffGrowsWithAttempts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		attempts int
+		want     time.Duration
+	}{
+		{attempts: 1, want: 30 * time.Second},
+		{attempts: 2, want: 2 * time.Minute},
+		{attempts: 12, want: time.Hour},
+	}
+
+	for _, test := range tests {
+		payload := emailMessage(t, test.attempts)
+		store := &fakeStore{messages: []outbox.Message{payload}}
+		worker := newWorker(store, &fakeMailer{err: errors.New("smtp down")})
+
+		if err := worker.ProcessOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if got := store.retry[payload.ID]; got != test.want {
+			t.Fatalf("attempts %d: retry after %v, want %v", test.attempts, got, test.want)
+		}
+	}
+}
+
+func TestProcessOnceSurfacesClaimErrors(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{claimErr: errors.New("database unavailable")}
+	worker := newWorker(store, &fakeMailer{})
+
+	if err := worker.ProcessOnce(context.Background()); err == nil {
+		t.Fatal("expected the claim error to surface")
+	}
+	if len(store.sent) != 0 {
+		t.Fatal("no message should be marked sent after a claim failure")
+	}
+	if len(store.failed) != 0 {
+		t.Fatal("no message should be marked failed after a claim failure")
+	}
+}
+
 func TestProcessOnceRejectsUnsupportedTopicAndPayload(t *testing.T) {
 	t.Parallel()
 

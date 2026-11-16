@@ -8,10 +8,13 @@ profile because they depend on live infrastructure.
 ```bash
 docker compose config --profile observability
 docker compose --profile observability up -d
-curl -sf http://localhost:3001/metrics | rg '^# HELP'
+curl -sf http://localhost:9091/metrics | rg '^# HELP'
 curl -sf http://localhost:9090/-/ready
 curl -sf http://localhost:3100/ready
 ```
+
+The API port deliberately answers `404` for `/metrics`; if the scrape fails,
+check `METRICS_ADDR` rather than the API routes.
 
 Grafana can be inspected at http://localhost:3000. The dashboard is under the
 `Type Fast` folder.

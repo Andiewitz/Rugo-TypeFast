@@ -103,7 +103,7 @@ func TestRegisterCreatesPendingUserAndHashedToken(t *testing.T) {
 	if user.PasswordHash == "" || strings.Contains(user.PasswordHash, "a-long-enough-password") {
 		t.Fatal("password was not hashed")
 	}
-	if !strings.Contains(store.createdMessage.Text, "/verify-email?token=") {
+	if !strings.Contains(store.createdMessage.Text, "/verify-email#token=") {
 		t.Fatal("verification link missing from message")
 	}
 
@@ -157,7 +157,7 @@ func TestResendVerification(t *testing.T) {
 	if err := service.ResendVerification(context.Background(), "User@Example.com", "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(store.resentMessage.Text, "/verify-email?token=") {
+	if !strings.Contains(store.resentMessage.Text, "/verify-email#token=") {
 		t.Fatal("verification link missing from resent message")
 	}
 	rawToken := extractToken(t, store.resentMessage.Text)
