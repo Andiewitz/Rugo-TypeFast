@@ -17,7 +17,7 @@ The API port deliberately answers `404` for `/metrics`; if the scrape fails,
 check `METRICS_ADDR` rather than the API routes.
 
 Grafana can be inspected at http://localhost:3000. The dashboard is under the
-`Type Fast` folder.
+`Rugo` folder.
 
 ## Safety
 

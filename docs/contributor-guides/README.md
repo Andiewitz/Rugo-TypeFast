@@ -1,89 +1,99 @@
-# Contributor Guides
+# Contributor guide
 
-## Prerequisites
+Everything you need to run the project, change it, and get the change merged.
 
-- Node.js 22.23.4 or newer
-- npm 11 or newer
-- Go 1.27.4
-- Docker with Compose
+## 1. Install the tools
 
-## Setup
+| Tool | Version | Why |
+| --- | --- | --- |
+| Node.js | 22.23.4 or newer | The two client workspaces |
+| npm | 11 or newer | Workspace installs |
+| Go | 1.27.4 | The user service and its tests |
+| Docker with Compose | current | PostgreSQL and Mailpit |
+
+## 2. Set up once
 
 ```bash
 npm install
 cp .env.example .env
-set -a
-. ./.env
-set +a
+set -a; . ./.env; set +a
 ```
 
-All Node dependencies are installed once from the repository root. Each workspace declares its own dependencies. Go dependencies live in `services/user/go.mod` and `tests/go.mod`.
+Node dependencies install once from the repository root; each workspace declares its own. Go dependencies live in `services/user/go.mod` and `tests/go.mod`.
 
-## Repository layout
+The API never reads `.env` itself, so export the values into your shell before a local Go run.
 
-- `client/app` - React application built with Vite and TypeScript (`@kit/app`)
-- `client/web` - Astro website (`@kit/web`)
-- `services/user` - Go identity and account service
-- `tests` - unit, integration, end-to-end, load, failure, and security tests
-- `docs` - issues, plans, system notes, post-mortems, and test documentation
-
-## Development commands
+## 3. Run what you are changing
 
 ```bash
-npm run db:up          # PostgreSQL and Mailpit
-npm run migrate:up     # apply migrations
-npm run dev:app        # React app
-npm run dev:web        # Astro site
-npm run dev:user       # Go user service on :3001
+npm run db:up      # PostgreSQL and Mailpit
+npm run migrate:up # apply database migrations
+npm run dev:user   # API on :3001
+npm run dev:app    # course app on :5173
+npm run dev:web    # marketing site on :4321
 ```
 
-The service health endpoints are `http://localhost:3001/healthz` and `http://localhost:3001/readyz`. Mailpit is available at `http://localhost:8025`.
+Health checks: http://localhost:3001/healthz and http://localhost:3001/readyz. Email lands in Mailpit at http://localhost:8025.
 
-Run the complete container stack with `docker compose up --build`.
+`docker compose up --build` runs the full container stack instead.
 
-See [Go services](go-services.md) for toolchain, migrations, key generation, administration, and testing details.
+## 4. Where the code lives
 
-## Before opening a pull request
+| Path | Contents |
+| --- | --- |
+| `client/app` | React course app (`@kit/app`) |
+| `client/web` | Astro site (`@kit/web`) |
+| `services/user` | Go service: accounts, sessions, roles, audit, email |
+| `tests` | Course, integration, load, failure, and security tests |
+| `docs` | Everything else you are reading |
 
-CI runs these checks on every pull request, so run them locally first:
+## 5. Check your work
+
+CI runs these on every pull request, so run them first:
 
 ```bash
 npm run typecheck
 npm run lint
-npm run build
-npm run test:user
+npm run test
+npm run test:ci             # adds the race detector
+npm run db:up && npm run test:int:user
 ```
 
-The pipeline, required checks, releases, and the single-VM deploy are described in [CI/CD](ci-cd.md).
+The pipeline, the required checks, releases, and the deploy process are in [CI/CD](ci-cd.md). Day-to-day Go detail — migrations, key generation, admin commands — is in [Go services](go-services.md).
 
-Integration tests require PostgreSQL:
+## 6. Merge it
 
-```bash
-npm run test:int:user
-```
+1. Branches off `main`, one concern per commit.
+2. Use the prefixes: `Add`, `Fix`, `Refactor`, `Update`, `Document`.
+3. Open a pull request into `main` and wait for the five checks.
+4. Update the matching page under `docs/` in the same change when behavior moves.
 
-Never commit secrets, credentials, `.env`, `.secrets/`, or production data.
+Never commit secrets, `.env`, `.secrets/`, or production data.
+
+## Where to write things down
+
+| You have… | Put it in |
+| --- | --- |
+| A bug you can reproduce | `docs/issues` |
+| A design for work that is not started | `docs/plans` |
+| An incident that reached users | `docs/post-mortems` |
+| A change to how a system works | `docs/systems` |
+| A change to how tests are written | `docs/tests-docs` |
+
+Every folder has a `_template.md`. Copy it, keep the headings, fill them in.
 
 ## Versioning
 
-The product version is the `version` field in the root `package.json` and follows semantic versioning:
+The version lives in the root `package.json` and follows `x.y.z`:
 
-- `x` (major) - a large or breaking update
-- `y` (minor) - a new feature
-- `z` (patch) - a bug fix or small correction
+- `x` — a large or breaking update
+- `y` — a new feature
+- `z` — a bug fix
 
-The app injects that value at build time and shows it under **Settings → Build Version**, so a running build always says which release it came from. Bump the version in the same commit as the change it describes:
+The app shows it under **Settings → Build Version**. Bump it in the same commit as the change it describes:
 
 ```bash
 npm version minor --no-git-tag-version
 ```
 
-Workspace packages such as `@kit/app` keep their own `private` versions; they are not the product version.
-
-## Where to document work
-
-- Bug or regression: `docs/issues`
-- Upcoming design or implementation work: `docs/plans`
-- Incident follow-up: `docs/post-mortems`
-- Architecture or ownership changes: `docs/systems`
-- Test strategy or harness changes: `docs/tests-docs`
+Workspace packages like `@kit/app` keep their own private versions; they are not the product version.

@@ -1,92 +1,65 @@
 # User service tests
 
-Test strategy for the Go user service at `services/user`.
+What the suites cover for the Go service at `services/user`.
 
 ## Layers
 
-| Layer | Location | Scope |
+| Layer | Where | Answers |
 | --- | --- | --- |
-| Unit | `services/user/internal/**/*_test.go` | Validation, hashing, JWT, service rules, middleware, outbox retries |
-| Integration | `tests/int/user` | Real HTTP handler stack against PostgreSQL |
-| Load | `tests/k6/user-session.k6.js` | Opt-in login/account/refresh/logout throughput |
-| Failure and security | `tests/failure`, `tests/security` | Documented scenarios; expand as the service matures |
+| Unit | `services/user/internal/**/*_test.go` | Does one rule hold? |
+| Integration | `tests/int/user` | Does the real HTTP stack plus PostgreSQL behave? |
+| Load | `tests/k6/user-session.k6.js` | Does it hold up under traffic? |
+| Failure and security | `tests/failure`, `tests/security` | What breaks, and who can get in? |
 
-## Unit tests
+## Run them
 
-Run from the service module:
+```bash
+npm run test:user     # unit
+npm run test:ci       # unit with -race
+npm run test:int:user # integration (needs npm run db:up)
+```
+
+Direct commands:
 
 ```bash
 go -C services/user test ./...
-```
-
-Coverage includes:
-
-- Email, password, display-name, and status validation.
-- Argon2id hash and verification, including malformed hashes.
-- Random token generation and deterministic hashing.
-- Ed25519 JWT issue/parse, tampering, wrong audience, and wrong key.
-- Registration validation, token hashing, and audit events.
-- Login success, invalid credentials, unknown accounts, and inactive accounts.
-- Authorization role/status rules and self-protection.
-- Account profile updates, session revoke audit, and event limits.
-- Outbox send, retry, unsupported topic, and invalid payload.
-- HTTP middleware: JSON decoding, CORS, security headers, request IDs, origin checks, rate limits, and problem responses.
-- Token revocation snapshot: issue-time comparisons, snapshot replacement, retention on refresh failure, refresher loop shutdown, and concurrent access.
-- Retention sweep: expiry cutoffs for tokens and sessions, the inspection window for delivered outbox rows, continuing after one table fails, and the startup sweep plus tick loop.
-- Email links: verification and reset tokens travel in the URL fragment, never in the query string.
-- Metrics: the API mux answers `404` for `/metrics` while the dedicated listener serves the registry.
-- Configuration: the metrics listener default and the `off` switch.
-
-## Integration tests
-
-Location: `tests/int/user`
-
-The suite builds the real HTTP router with real services and a real PostgreSQL store. It uses `httptest` and a cookie jar; it does not mock the database.
-
-Run:
-
-```bash
-npm run db:up
-npm run test:int:user
-```
-
-The suite prepares its own test database, so a separate migration step is only needed for the development database a developer runs the API against.
-
-Direct command:
-
-```bash
 go -C tests test ./int/user/... -count=1
 ```
 
-Environment:
+## How integration tests stay safe
 
-- `TEST_DATABASE_URL` selects the database. Its name must be lowercase and end in `_test`.
-- Without it, the suite uses `postgres://kit:kit_dev_password@localhost:5432/kit_test?sslmode=disable`.
-- `DATABASE_URL` is deliberately ignored so a local development database is never touched.
-- The harness creates the test database when it is missing, then applies migrations.
+- They build the real router, real services, and a real store against PostgreSQL. The database is not mocked.
+- They create the database, apply migrations, and truncate `users`, `sessions`, `one_time_tokens`, `audit_events`, and `outbox_events` before each run. Roles and permissions seeded by migration survive.
+- `DATABASE_URL` is ignored on purpose, so a development database cannot be truncated by accident. Set `TEST_DATABASE_URL` to choose another scratch database; its name must end in `_test`.
+- Email is never sent. The test reads the outbox payload directly to get verification and reset tokens.
 
-The harness truncates `users`, `sessions`, `one_time_tokens`, `audit_events`, and `outbox_events` before each harness instance. Roles and permissions seeded by migration remain. The name check exists because that truncation is destructive: a URL that does not point at a `_test` database stops the run before any test executes. Never point these tests at shared or production data.
+## Unit coverage
 
-Covered flows:
+- **Input**: email, password, display name, and status validation.
+- **Secrets**: Argon2id hashing, random tokens, Ed25519 signing and parsing (tampering, wrong audience, wrong key).
+- **Rules**: registration, recovery, login outcomes, authorization, account updates.
+- **Delivery**: outbox send, retry, and backoff.
+- **HTTP**: JSON decoding, CORS, security headers, request IDs, origin checks, rate limits, problem responses.
+- **Runtime behavior**: the revocation snapshot, the retention sweep, email link shape, the metrics listeners, and configuration defaults.
 
-- Registration, duplicate-email masking, verification, login, profile read/update.
-- Session listing, current-session marker, logout, and refresh.
-- Refresh rotation, old-token replay, and family revocation.
-- Password reset, old-password rejection, session revocation, and reset-token reuse rejection.
-- Admin user listing, suspend/activate, role grant/revoke, and permission enforcement.
-- Internal authorization checks and invalid internal token rejection.
-- Audit event visibility for account actions.
-- CSRF origin rejection, content-type enforcement, weak password rejection, invalid token handling.
-- Health and readiness endpoints, and the absence of a metrics route on the API port.
-- Ban enforcement: a suspended account is rejected with `token_revoked` on every authenticated route, refresh and login are refused, other accounts keep working, reactivation leaves pre-ban tokens dead, a polling replica picks the ban up, and the marker plus session revocation are recorded.
-- Cognito identity storage: creating a verified user from a subject, duplicate subject and email rejection, subject lookup, linking to an existing local account with idempotent relink, re-point and cross-account conflicts, soft-deleted accounts, and blank-input validation.
-- Retention against real rows: expired tokens and sessions deleted, live and revoked-but-unexpired sessions kept, delivered outbox rows past the window deleted while recent and pending rows survive, and a backlog larger than one batch drained completely.
+## Integration coverage
 
-Email is not sent during integration tests. The outbox payload is read directly so verification and reset tokens can be extracted.
+- Registration, duplicate-email masking, verification, login, profile read and update.
+- Session listing, current-session marker, logout, refresh.
+- Refresh rotation, replayed token, session-family revocation.
+- Password reset, old password refused, sessions revoked, reset token refused on reuse.
+- Admin listing, suspend and activate, role grant and revoke, permission enforcement.
+- Internal permission checks, and rejection of a wrong internal token.
+- Audit events visible to the account owner.
+- CSRF origin rejection, content-type enforcement, weak passwords, invalid tokens.
+- Health and readiness, and the absence of a metrics route on the API port.
+- Bans: a suspended account is refused with `token_revoked` everywhere, other accounts keep working, reactivation leaves old tokens dead, another replica picks the ban up.
+- Cognito identity storage: creation from a subject, duplicate rejection, lookup, linking, re-point conflicts, soft-deleted accounts.
+- Retention against real rows: expired tokens and sessions deleted; live and revoked-but-unexpired sessions kept; delivered outbox rows past the window deleted; a backlog larger than one batch fully drained.
 
-## Load tests
+## Load
 
-`tests/k6/user-session.k6.js` exercises login, account read, refresh, and logout against a dedicated environment with a pre-verified account.
+`tests/k6/user-session.k6.js` runs login, account read, refresh, and logout against a dedicated environment with a pre-verified account.
 
 ```bash
 USER_EMAIL=load@example.com \
@@ -96,30 +69,18 @@ APP_ORIGIN=http://localhost:5173 \
 k6 run tests/k6/user-session.k6.js
 ```
 
-Load tests are opt-in and must not target production or shared development data.
+One virtual user every seven seconds stays under the rate limits. Raise it only with rate limiting disabled.
 
-## Security coverage
+## Known gaps
 
-Integration tests currently cover origin validation, authorization boundaries, generic credential errors, reset-token reuse, refresh reuse, and internal-token rejection. Add `govulncheck` and secret scanning to CI before production. See [`tests/security/README.md`](../../tests/security/README.md).
+- Browser end-to-end journeys are not automated; no runner is configured.
+- Database outage, migration failure, SMTP timeout, graceful shutdown, and overload are described in [`tests/failure`](../../tests/failure/) but not all scripted.
+- Secrets scanning runs in CI; dependency scans run locally and in CI.
 
-## Failure coverage
-
-Unit tests cover outbox send failure and retry scheduling. Remaining failure scenarios to automate: database outage during request handling, migration failure, SMTP timeout, graceful shutdown, and overloaded rate-limit behavior. See [`tests/failure/README.md`](../../tests/failure/README.md).
-
-## Conventions
-
-- Use Go table tests for validation and error matrices.
-- Test exported behavior and HTTP contracts; avoid asserting private call sequences.
-- Keep integration data synthetic and reset per harness.
-- Fixed auth or authorization bugs require a regression test.
-- Do not log or commit raw tokens, cookies, passwords, or JWT seeds.
-- Run `go vet ./...` and `go test -race ./...` before merging backend changes.
-
-## CI commands
+## Before merging backend work
 
 ```bash
-npm run lint
-npm run test:user
+go -C services/user vet ./...
+go -C services/user test -race ./...
 npm run test:int:user
-npm run build:user
 ```

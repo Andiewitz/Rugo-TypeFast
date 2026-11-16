@@ -1,57 +1,43 @@
 # Go services
 
-Guide for the Go service module at `services/user`.
+Day-to-day guide for `services/user`. The architecture is in [`../systems/user-service.md`](../systems/user-service.md); this page is about doing the work.
 
-## Prerequisites
+## What is where
 
-- Go 1.27.4
-- Docker with Compose for PostgreSQL and Mailpit
-- Node.js 22.23.4 or newer for the client workspaces
+| Path | Contents |
+| --- | --- |
+| `services/user/cmd/api` | HTTP server, email worker, cleanup sweeper |
+| `services/user/cmd/migrate` | Migration runner |
+| `services/user/cmd/admin` | List users, change roles and status |
+| `services/user/cmd/keygen` | Ed25519 signing key |
+| `services/user/internal` | Feature packages, HTTP layer, storage |
+| `tests/int/user` | Black-box HTTP tests |
+| `go.work` | Ties the service and test modules together |
 
-Verify the toolchain:
+The test module is `typefast/services/user/tests` even though it lives at the repository root. That keeps its import path under the service module, so integration tests can import service packages while staying a separate module.
 
-```bash
-go version
-# go version go1.27.4 linux/amd64
-```
+`go.work` is committed on purpose. `go.work.sum` stays local. Do not add machine-specific `replace` directives.
 
-If `/usr/local/go/bin` is not on `PATH`, add it or invoke that binary directly. The `go` command can also auto-download the toolchain declared in `go.mod` when `GOTOOLCHAIN=auto`.
-
-## Repository layout
-
-- `services/user/cmd/api` - HTTP server and outbox worker
-- `services/user/cmd/migrate` - migration runner
-- `services/user/cmd/admin` - local administration CLI
-- `services/user/cmd/keygen` - Ed25519 key generation
-- `services/user/internal` - feature packages, HTTP layer, storage, migrations
-- `tests/int/user` - black-box HTTP integration tests
-- `go.work` - workspace containing the service and test modules
-- `compose.yaml` - PostgreSQL, Mailpit, migration, and API services
-
-`go.work` is committed deliberately so the service and test modules resolve together; `go.work.sum` stays local. Do not add machine-specific `replace` directives.
-
-The test module is `typefast/services/user/tests` even though it lives at the repository root. This keeps its import path under the service module so integration tests can import service packages while remaining a separate module.
-
-## Setup
+## Set up
 
 ```bash
 npm install
 cp .env.example .env
-set -a
-. ./.env
-set +a
+set -a; . ./.env; set +a
 go run ./services/user/cmd/keygen
 ```
 
-Set `JWT_PRIVATE_KEY` from the generated seed when you need stable tokens across restarts:
+The key lands in `.secrets/jwt_ed25519.key` with `0600` permissions; the command never prints it. Load it when you want tokens to survive a restart:
 
 ```bash
 export JWT_PRIVATE_KEY="$(cat .secrets/jwt_ed25519.key)"
 ```
 
-Leaving it empty in development uses an ephemeral key and logs a warning.
+Leave it empty in development and every restart uses a fresh key, which logs everyone out. That is fine locally and never acceptable in production.
 
-## Local workflow
+The API does not read `.env` itself, so export the values first.
+
+## Run
 
 ```bash
 npm run db:up
@@ -59,31 +45,11 @@ npm run migrate:up
 npm run dev:user
 ```
 
-The API listens on `http://localhost:3001`. Mailpit is at `http://localhost:8025`.
-
-Run the complete container stack:
-
-```bash
-docker compose up --build
-```
-
-The `migrate` service runs once and must complete before `user` starts.
-
-## Environment
-
-Copy `.env.example` to `.env`; Compose reads it automatically. For local Go runs, export the values:
-
-```bash
-set -a
-source .env
-set +a
-```
-
-The API does not load `.env` itself. Never commit `.env` or `.secrets/`.
+API on http://localhost:3001, Mailpit on http://localhost:8025. The container stack is `docker compose up --build`, where the `migrate` service must finish before `user` starts.
 
 ## Database and migrations
 
-Migrations are SQL files in `services/user/internal/storage/migrations` and are embedded in the binary. Use goose markers:
+Migrations are SQL files in `services/user/internal/storage/migrations`, embedded in the binary, and run by goose. They look like this:
 
 ```sql
 -- +goose Up
@@ -93,70 +59,56 @@ Migrations are SQL files in `services/user/internal/storage/migrations` and are 
 -- statements
 ```
 
-Add the next number, for example `0002_add_feature.sql`. Never rewrite a migration that has been applied. Apply and inspect:
+| Rule | Why |
+| --- | --- |
+| Add the next number (`0005_…`) | Applied migrations are recorded by number |
+| Never edit an applied migration | Other databases already ran the old text |
+| Always write the `Down` block | Rollback needs it |
 
 ```bash
 go -C services/user run ./cmd/migrate up
 go -C services/user run ./cmd/migrate status
-go -C services/user run ./cmd/migrate down
+go -C services/user run ./cmd/migrate down   # one migration
 ```
 
-`down` rolls back one migration. Use it only in development or with a reviewed rollback plan.
-
-## Testing
-
-Fast unit tests:
+## Test
 
 ```bash
-go -C services/user test ./...
+go -C services/user test ./...        # fast unit tests
+go -C services/user test -race ./...  # what CI runs
+npm run db:up && npm run test:int:user
 ```
 
-Integration tests require PostgreSQL and truncate the identity tables before each suite:
+Integration tests create and migrate `kit_test` themselves. They ignore `DATABASE_URL` so your development database cannot be truncated, and they refuse any database whose name does not end in `_test`.
 
-```bash
-npm run db:up
-npm run test:int:user
-```
+## Add a feature
 
-They run against `kit_test`, which the harness creates and migrates on first use. `DATABASE_URL` is ignored so a development database cannot be truncated by accident; set `TEST_DATABASE_URL` only to choose a different scratch database, and keep its name ending in `_test`. Never run them against shared or production data.
-
-Useful checks:
-
-```bash
-go -C services/user vet ./...
-go -C services/user test -race ./...
-go -C tests test ./int/user/... -count=1
-```
-
-## Adding a feature
-
-1. Add or extend a domain package under `services/user/internal`.
-2. Keep dependencies behind interfaces defined by the consumer.
+1. Add or extend a package under `services/user/internal`.
+2. Define the interface the consumer needs, in the consumer.
 3. Implement persistence in `internal/storage/postgres`.
-4. Wire the dependency in `cmd/api/main.go`.
-5. Add HTTP routes and handlers in `internal/httpapi`.
-6. Add unit tests near the package and integration coverage in `tests/int/user` for observable behavior.
-7. Add a migration if the schema changes.
-8. Update `docs/systems/user-service.md` and `docs/tests-docs/user-service.md`.
+4. Wire it in `cmd/api/main.go`.
+5. Add the route and handler in `internal/httpapi`.
+6. Add unit tests beside the package and integration coverage in `tests/int/user` for anything observable.
+7. Add a migration if the schema changed.
+8. Update [`docs/systems/user-service.md`](../systems/user-service.md) and [`docs/tests-docs/user-service.md`](../tests-docs/user-service.md).
 
 ## Error handling
 
-- Return `*apperr.Error` for expected failures; set a stable machine-readable code.
-- Validation errors use `apperr.Invalid`.
-- Do not leak internal errors or SQL details to clients.
-- `writeError` maps types to HTTP status and logs internal failures with the request ID.
-- Audit security-relevant state changes, but do not fail the request if audit insertion fails.
+- Return `*apperr.Error` for expected failures, with a stable machine-readable code.
+- Use `apperr.Invalid` for validation.
+- Never leak internal errors or SQL text to clients; `writeError` maps types to status codes and logs the detail with the request ID.
+- Audit security-relevant changes, but do not fail the request when the audit insert fails.
 
 ## Security rules
 
-- Never log passwords, raw tokens, authorization headers, or JWT seeds.
-- Hash password and one-time tokens; store only hashes.
-- Use constant-time comparison for shared secrets.
+- Never log passwords, raw tokens, authorization headers, or signing keys.
+- Hash passwords and one-time tokens; store only hashes.
+- Compare shared secrets in constant time.
 - Keep state-changing endpoints behind origin checks and authentication.
-- Enforce authorization in the service even when the client hides UI.
-- Add rate limits to credential and email endpoints.
+- Enforce authorization in the service, not just in the UI.
+- Rate limit anything that sends email or checks credentials.
 
-## Administration
+## Admin CLI
 
 ```bash
 go -C services/user run ./cmd/admin list-users
@@ -166,12 +118,15 @@ go -C services/user run ./cmd/admin revoke-role <user-id> admin
 go -C services/user run ./cmd/admin set-status <user-id> suspended
 ```
 
-The CLI connects with `DATABASE_URL` and writes audit events for its changes.
+It connects with `DATABASE_URL` and writes audit events for its changes.
 
-## Troubleshooting
+## When it misbehaves
 
-- `database system is starting up`: wait for the Compose health check, then rerun migrations.
-- `relation "users" does not exist`: run `npm run migrate:up`.
-- `JWT_PRIVATE_KEY is not set`: expected in development; set a generated key for stable sessions.
-- Refresh always fails: confirm the client sends the `kit_refresh` cookie to `/v1/auth` and uses the latest rotated value.
-- Mailpit is empty: check `MAILER=smtp`, `SMTP_ADDR`, and outbox worker logs.
+| Symptom | Cause |
+| --- | --- |
+| `database system is starting up` | Wait for the Compose health check, then migrate |
+| `relation "users" does not exist` | Run `npm run migrate:up` |
+| `JWT_PRIVATE_KEY is not set` | Expected in development; set a key for stable sessions |
+| Refresh always fails | The client must send `kit_refresh` to `/v1/auth` and use the latest rotated value |
+| Mailpit stays empty | Check `MAILER=smtp`, `SMTP_ADDR`, and the outbox worker logs |
+| `/metrics` returns 404 | Correct: scrape `METRICS_ADDR` (default `127.0.0.1:9091`) |

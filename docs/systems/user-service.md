@@ -1,67 +1,121 @@
 # User service
 
+The Go service behind accounts. It stores who a user is, proves who they are when they sign in, keeps their sessions, controls what they may do, and sends the emails that make all of that possible.
+
 - Location: `services/user`
-- Runtime: Go 1.27.4
-- Datastore: PostgreSQL 18
-- Default port: `3001`
-- Health: `GET /healthz`, readiness: `GET /readyz`
-- Ownership: backend/identity
+- Language: Go 1.27.4
+- Database: PostgreSQL 18
+- Port: `3001`
+- Health: `GET /healthz` · readiness: `GET /readyz`
 
-## Responsibilities
+## What it owns
 
-The user service owns account identity, credentials, sessions, role-based permissions, account audit events, and authentication email delivery. Other services may rely on its access tokens for identity claims or call the trusted internal authorization endpoint.
+Accounts, passwords, sessions, roles and permissions, account audit history, verification and reset emails, and the trusted permission check other services call.
 
-## Architecture
+The client app holds no identity of its own. It sends a bearer token and the API decides.
 
-```
-client app/web
-     |
-     | HTTPS, JSON, bearer access token, refresh cookie
-     v
-services/user/cmd/api
-     |
-     +-- internal/httpapi        HTTP routing, middleware, handlers
-     +-- internal/register       registration and email verification
-     +-- internal/login          credential verification and session issue
-     +-- internal/session        token issue/parse, refresh rotation, revocation
-     +-- internal/recovery       password reset
-     +-- internal/account        profile, sessions, audit history
-     +-- internal/authorization  admin users/roles and permission checks
-     +-- internal/outbox         transactional email worker
-     +-- internal/retention      periodic deletion of dead rows
-     +-- internal/storage        pgx store and goose migrations
-     |
-     +--> PostgreSQL
-     +--> SMTP / Mailpit
+## Run it
+
+```bash
+npm run db:up        # PostgreSQL and Mailpit
+npm run migrate:up   # apply migrations
+npm run dev:user     # start the API
 ```
 
-The service is a modular monolith. Feature packages depend on narrow store interfaces; `internal/storage/postgres` implements them. Cross-feature composition happens in `cmd/api/main.go`.
-
-## Runtime commands
-
-| Command | Purpose |
+| Command | Does |
 | --- | --- |
-| `go run ./cmd/api` | Start HTTP API and outbox worker |
+| `go run ./cmd/api` | HTTP API, email worker, cleanup sweeper |
 | `go run ./cmd/migrate up` | Apply migrations |
 | `go run ./cmd/migrate down` | Roll back one migration |
-| `go run ./cmd/migrate status` | Show migration status |
-| `go run ./cmd/admin ...` | Local user and role administration |
-| `go run ./services/user/cmd/keygen` | Generate an Ed25519 JWT seed |
+| `go run ./cmd/migrate status` | Show where the database is |
+| `go run ./cmd/admin …` | List users, change roles and status |
+| `go run ./cmd/keygen` | Write an Ed25519 signing key to `.secrets/` |
 
-The Docker image contains all four binaries under `/app`; the default entrypoint is `/app/api`.
+All four binaries ship in one image; the default entrypoint is `/app/api`.
 
-## HTTP behavior
+## How the pieces fit
 
-- JSON success responses use `application/json`.
-- Errors use `application/problem+json` with `type`, `title`, `status`, `code`, `detail`, and `request_id`.
-- `X-Request-ID` is accepted or generated and echoed on every response.
-- CORS allows only `APP_ORIGIN` with credentials.
-- State-changing requests with an `Origin` header must match `APP_ORIGIN`.
-- JSON bodies are capped at 1 MiB and must not contain unknown fields.
+```
+client app or site
+   │  HTTPS, JSON, bearer token, refresh cookie
+   ▼
+cmd/api
+   ├── internal/httpapi        routes, middleware, handlers
+   ├── internal/register       sign-up and email verification
+   ├── internal/login          password check and session start
+   ├── internal/session        tokens, rotation, revocation
+   ├── internal/recovery       password reset
+   ├── internal/account        profile, sessions, audit history
+   ├── internal/authorization  admin users and roles, permission checks
+   ├── internal/outbox         sends queued email
+   ├── internal/retention      deletes rows nobody needs
+   └── internal/storage        PostgreSQL and migrations
+        │
+        ├─► PostgreSQL
+        └─► SMTP
+```
 
-## HTTP routes
+It is one deployable unit with clean internal seams: feature packages depend on small interfaces, and `cmd/api/main.go` wires them together.
 
-Limits are token buckets per client address: the average refill and the burst.
+## How signing in works
+
+Two tokens do the work.
+
+- **Access token** — a 15-minute Ed25519-signed pass. Any replica can check it without asking the database.
+- **Refresh token** — a 30-day key in an HttpOnly cookie. It gets you a new access token.
+
+### Signing up
+
+1. Email is normalised and the password checked against the rules.
+2. The password is hashed with Argon2id; the user is stored as `pending`.
+3. A verification token is hashed and stored, and the email is queued in the same transaction.
+4. The email worker sends the link.
+5. Following the link consumes the token, activates the account, and records an audit event.
+
+Registering an address that already exists returns the same `202` as a new one. Otherwise the endpoint would tell strangers which addresses have accounts.
+
+### Signing in
+
+1. Email and password are verified. An unknown address still runs a dummy hash, so both failures take equally long.
+2. Accounts that are not `active` are refused.
+3. Roles and permissions are loaded and copied into the token.
+4. A session row is created holding a SHA-256 hash of the refresh token.
+5. `kit_refresh` is set for `/v1/auth`; the access token and user are returned in JSON.
+
+### Refreshing
+
+The cookie looks like `<session-id>.<random-secret>`. Every refresh replaces the stored hash and issues a new access token, so a stolen cookie is only useful until the real client refreshes.
+
+Presenting a refresh token that was already used means one of the two copies is an attacker: the entire session family is revoked, and both sides must sign in again.
+
+### Signing out, bans, and why tokens die early
+
+An access token cannot be recalled once signed; it is checked offline. So the service keeps a **revocation snapshot**: a small in-memory list of banned accounts and a timestamp per account.
+
+A request fails with `401 token_revoked` when the account is suspended, or when the token was issued at or before the account's `revoked_before` marker.
+
+Suspending an account does three things in one transaction: sets `status = 'suspended'`, revokes every session, and stamps `revoked_before = now()`.
+
+- Suspension is absolute. Even a token minted after the ban is refused, which is what stops a refresh from restoring access.
+- Reactivating lifts the suspension but keeps the marker, so new tokens work and pre-ban tokens stay dead.
+- The replica handling the ban applies it immediately; others reload every `REVOCATION_REFRESH_INTERVAL` (default `5s`).
+- The check is a map lookup, so it adds no database load and grows with banned accounts, not users.
+- Issued-at times have one-second resolution, so a token minted in the same second as a ban is allowed. The window is under a second, and the trade is deliberate: never lock out someone who just signed in.
+- A failed refresh keeps the previous snapshot, so a database hiccup cannot quietly un-ban anyone. A failed first load stops startup.
+- Bans apply to this API only. Cognito's `AdminUserGlobalSignOut` and `AdminDisableUser` are not called yet; doing so would also kill Cognito refresh tokens and add an AWS SDK dependency.
+
+Users can also revoke one session from `/v1/account/sessions`, and signing out revokes the current one.
+
+### Resetting a password
+
+1. A reset request is accepted for unknown addresses too, so the endpoint reveals nothing.
+2. The token is hashed, single-use, and expires in 30 minutes.
+3. Following the link updates the password, revokes every session, and stamps `revoked_before` in one statement.
+4. Access tokens issued before the reset stop working at once on the replica that handled it, and within `REVOCATION_REFRESH_INTERVAL` on the rest.
+
+## API reference
+
+Rate limits are token buckets per client address: the refill rate and the burst.
 
 | Method | Path | Access | Limit |
 | --- | --- | --- | --- |
@@ -72,92 +126,45 @@ Limits are token buckets per client address: the average refill and the burst.
 | `POST` | `/v1/auth/email/resend` | none | 1 per 12s, burst 5 |
 | `POST` | `/v1/auth/login` | none | 1 per 6s, burst 10, plus a per-account throttle |
 | `POST` | `/v1/auth/refresh` | refresh cookie | 1 per 2s, burst 30 |
-| `POST` | `/v1/auth/logout` | bearer, any permission | none |
+| `POST` | `/v1/auth/logout` | bearer | none |
 | `POST` | `/v1/auth/password/forgot` | none | 1 per 12s, burst 5 |
 | `POST` | `/v1/auth/password/reset` | none | 1 per 6s, burst 5 |
-| `GET` | `/v1/account` | bearer `account.read` | none |
-| `PATCH` | `/v1/account` | bearer `account.update` | none |
-| `GET` | `/v1/account/sessions` | bearer `sessions.read` | none |
-| `DELETE` | `/v1/account/sessions/{id}` | bearer `sessions.revoke` | none |
-| `GET` | `/v1/account/events` | bearer `account.read` | none |
-| `GET` | `/v1/admin/users` | bearer `users.read` | none |
-| `PATCH` | `/v1/admin/users/{id}/status` | bearer `users.manage` | none |
-| `POST` | `/v1/admin/users/{id}/roles` | bearer `roles.manage` | none |
-| `DELETE` | `/v1/admin/users/{id}/roles/{role}` | bearer `roles.manage` | none |
-| `GET` | `/v1/admin/roles` | bearer `roles.manage` | none |
+| `GET` | `/v1/account` | `account.read` | none |
+| `PATCH` | `/v1/account` | `account.update` | none |
+| `GET` | `/v1/account/sessions` | `sessions.read` | none |
+| `DELETE` | `/v1/account/sessions/{id}` | `sessions.revoke` | none |
+| `GET` | `/v1/account/events` | `account.read` | none |
+| `GET` | `/v1/admin/users` | `users.read` | none |
+| `PATCH` | `/v1/admin/users/{id}/status` | `users.manage` | none |
+| `POST` | `/v1/admin/users/{id}/roles` | `roles.manage` | none |
+| `DELETE` | `/v1/admin/users/{id}/roles/{role}` | `roles.manage` | none |
+| `GET` | `/v1/admin/roles` | `roles.manage` | none |
 | `POST` | `/internal/v1/authz/check` | `X-Internal-Token` | 1 per 50ms, burst 20 |
 
-Error responses use the problem shape below. Success bodies carry the account, session, role, or event payloads described in the feature sections.
-- Rate limits are applied per client IP and path for auth endpoints; login is additionally throttled per account, so one host cannot spray a single address.
-- Security headers include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and restrictive permissions policy. `Strict-Transport-Security` is added whenever `COOKIE_SECURE` marks an HTTPS deployment.
+Errors use `application/problem+json` with `type`, `title`, `status`, `code`, `detail`, and `request_id`.
 
-## Authentication flows
+## Rules the API enforces
 
-### Registration
+- Only `APP_ORIGIN` may call with credentials, and state-changing requests carrying an `Origin` header must match it.
+- JSON is capped at 1 MiB and rejects unknown fields.
+- `X-Request-ID` is accepted or generated, and echoed on every response.
+- Security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, a restrictive permissions policy, and `Strict-Transport-Security` whenever `COOKIE_SECURE` says this is an HTTPS deployment.
+- Login is limited per address and per account, so one host cannot spray a single address.
+- Argon2 parameters read from a stored hash are bounded; a tampered or corrupt hash cannot force unbounded memory and CPU.
+- Passwords are 12 to 128 characters, hashed with Argon2id at 64 MiB, 3 iterations, parallelism 2.
 
-1. Normalize email and validate password.
-2. Hash password with Argon2id.
-3. Insert a `pending` user, hashed verification token, and queued email in one transaction.
-4. Outbox worker sends the verification link.
-5. Verification consumes the token, activates the user, and audits the action.
+## Roles and permissions
 
-Duplicate registration returns the same `202` response as a new registration.
-
-### Login and sessions
-
-1. Verify email and password. Unknown accounts still run a dummy password hash.
-2. Reject non-active accounts.
-3. Load roles and permissions.
-4. Insert a session with a SHA-256 refresh hash and issue an Ed25519 access token.
-5. Set `kit_refresh` on path `/v1/auth`; return the access token and user in JSON.
-
-### Refresh rotation
-
-- Format: `<session-id>.<random-secret>`.
-- Every refresh changes the stored hash and issues a new access token.
-- Presenting a previously used refresh token revokes the entire session family.
-- Expired or revoked sessions cannot refresh.
-
-### Logout and revocation
-
-- Logout revokes the current session.
-- Users can revoke individual sessions from `/v1/account/sessions`.
-- Suspension and password reset revoke active sessions.
-- Access tokens are checked against a revocation snapshot, so a ban or forced sign-out takes effect on the next request.
-
-### Bans and token revocation
-
-Access tokens are verified offline, so nothing can recall one after it is signed. Suspending an account therefore does three things in a single transaction: sets `status = 'suspended'` (blocks login), revokes every session (blocks refresh), and stamps `users.revoked_before = now()`.
-
-Each replica keeps an in-memory snapshot of revoked accounts. A request is rejected with `401 token_revoked` when the account is suspended, or when its token was issued at or before the account's marker.
-
-- Suspension is absolute: every token is refused, including one minted after the ban. This is what stops a refresh through the identity provider from minting access back.
-- After reactivation the marker is kept and only the suspension is lifted, so fresh tokens work again while pre-ban tokens stay dead.
-- The replica that performs a ban or reactivation applies it immediately; other replicas reload the snapshot every `REVOCATION_REFRESH_INTERVAL` (default `5s`), which also bounds how long either change takes to propagate.
-- The check is a map lookup per authenticated request: it adds no database load and its memory follows the number of revoked accounts, not the number of users.
-- JWT issued-at has one-second resolution, so a token minted in the same second as the ban is allowed. The exposure window is under a second; the comparison deliberately favours not locking out a freshly signed-in user.
-- Reactivating an account restores sign-in but never resurrects tokens issued before the ban, because the marker is kept.
-- A failed refresh keeps the previous snapshot, so a database hiccup cannot silently un-ban anyone. A failed initial load stops startup.
-- Bans are enforced for this API only. Cognito's `AdminUserGlobalSignOut` and `AdminDisableUser` are not called yet; wiring them would additionally invalidate Cognito refresh tokens and require an AWS SDK dependency.
-
-### Password recovery
-
-- Reset requests are accepted for unknown accounts without revealing existence.
-- Reset tokens are hashed, single-use, and expire in 30 minutes.
-- A successful reset updates the password, revokes all sessions, and stamps `users.revoked_before` in the same statement. Access tokens issued before the reset are refused on the replica that handled it immediately, and on other replicas within `REVOCATION_REFRESH_INTERVAL`.
-
-## Authorization model
-
-Roles are seeded by migration:
-
-| Role | Permissions |
+| Role | Can |
 | --- | --- |
 | `user` | `account.read`, `account.update`, `sessions.read`, `sessions.revoke` |
-| `admin` | All permissions plus `users.read`, `users.manage`, `roles.manage` |
+| `admin` | everything above, plus `users.read`, `users.manage`, `roles.manage` |
 
-Permissions are embedded in access tokens and checked by middleware. Role changes apply on the next login or refresh.
+Permissions are baked into the access token, so a role change lands on the next sign-in or refresh. Middleware checks permissions on every route.
 
-Other trusted services can call:
+## The internal permission check
+
+Other trusted services ask:
 
 ```http
 POST /internal/v1/authz/check
@@ -167,54 +174,65 @@ Content-Type: application/json
 {"user_id":"<uuid>","permission":"users.read"}
 ```
 
-The endpoint is disabled when `INTERNAL_SERVICE_TOKEN` is empty and returns `401` for a wrong token. It is rate limited per client address, and production startup fails if the token still holds the value published in `.env.example`.
+It reads the account's current status and roles, so it is fresher than a client's token. The endpoint is disabled when `INTERNAL_SERVICE_TOKEN` is empty, returns `401` for a wrong token, is rate limited per address, and production refuses to start if the token still holds the value published in `.env.example`.
 
-## Data and migrations
+## Data
 
-Migrations live in `internal/storage/migrations` and are embedded in the binary with goose. Apply them with the `migrate` command or the Compose `migrate` service. Never edit an applied migration; add the next numbered file.
+Migrations live in `internal/storage/migrations`, are embedded in the binary, and run through goose. Add the next number; never edit an applied migration.
 
-Tables:
+| Table | Holds |
+| --- | --- |
+| `users` | email, password hash, status, display name, timestamps, `cognito_sub`, `revoked_before` |
+| `roles`, `permissions`, `role_permissions`, `user_roles` | who may do what |
+| `sessions` | refresh-token hash, family, client metadata, expiry, revocation |
+| `one_time_tokens` | hashed verification and reset tokens |
+| `audit_events` | actor, subject, action, IP, metadata |
+| `outbox_events` | queued email with retry state |
 
-- `users`
-- `roles`, `permissions`, `role_permissions`, `user_roles`
-- `sessions`
-- `one_time_tokens`
-- `audit_events`
-- `outbox_events`
+Indexes cover user status, active sessions, token lookup, audit history, pending outbox work, token and session expiry, and delivered outbox rows — the last three exist for the cleanup sweeper.
 
-Indexes cover user status, active sessions, token lookup, audit history, and pending outbox work.
+### Cognito identity
 
-### Cognito identity mapping
+Cognito proves who someone is; this service still owns the account. The canonical record is always a `users` row.
 
-Cognito is the public identity provider. It proves who a user is but stores no application data; the canonical account is always a `users` row.
+- `users.cognito_sub` holds the subject. A partial unique index allows at most one live account per subject and leaves local accounts unlinked.
+- Accounts created through Cognito store a placeholder in `password_hash`, so password login always fails for them.
+- `postgres.Store` exposes `CreateUserFromCognito`, `GetUserByCognitoSub`, and `LinkCognitoSub`. Errors distinguish `cognito_sub_taken`, `cognito_sub_already_linked`, `email_exists`, and `cognito_identity_not_found`.
+- Linking the same subject twice is idempotent; re-pointing an account at a different subject is refused.
+- Soft-deleted accounts keep their `cognito_sub`. Signing in again returns `cognito_sub_taken` until an operator restores the account or clears the link, so a deleted identity cannot quietly become a second account.
 
-- `users.cognito_sub` holds the Cognito subject. The partial unique index `users_cognito_sub_key` allows at most one live account per subject while leaving local accounts unlinked.
-- Accounts created through Cognito store `identity.PasswordHashExternal` in `password_hash`. It is not a valid hash, so local password login always fails for them.
-- `postgres.Store` exposes `CreateUserFromCognito`, `GetUserByCognitoSub`, and `LinkCognitoSub`. Conflict codes separate `cognito_sub_taken`, `cognito_sub_already_linked`, and `email_exists`; subject lookups return `cognito_identity_not_found`.
-- Linking is idempotent for the same subject and refuses to re-point an account that already has a different one.
-- Soft-deleted accounts are invisible to subject lookup and cannot be linked, but they keep their `cognito_sub`. Signing in again with the same subject returns `cognito_sub_taken` until an operator restores the account or clears the link, which prevents a deleted identity from silently becoming a second account.
+## Email
 
-## Email delivery
+Handlers write the message into `outbox_events` in the same transaction as the state change, so a failed email never rolls back a registration and a rolled-back registration never sends mail.
 
-Registration and recovery handlers write email messages to `outbox_events` in the same transaction as state changes. The worker claims pending rows with `FOR UPDATE SKIP LOCKED`, sends through the configured mailer, and marks success or schedules retry with backoff.
+The worker claims pending rows with `FOR UPDATE SKIP LOCKED`, sends through the configured mailer, then marks success or schedules a retry with backoff. Delivery is **at least once**: a crash between sending and updating can duplicate a message.
 
-`MAILER=log` records only metadata and does not include message bodies. `MAILER=smtp` uses `SMTP_ADDR` and `MAIL_FROM`. Local Compose uses Mailpit at `localhost:8025` for inspection.
+| Setting | Behaviour |
+| --- | --- |
+| `MAILER=log` | Records metadata only, never the body |
+| `MAILER=smtp` | Sends through `SMTP_ADDR` as `MAIL_FROM`; Mailpit catches it locally |
 
-Verification and reset links put the token in the URL fragment (`/verify-email#token=…`), so the browser never sends it to the server in a request line, access log, or `Referer` header. The client reads `location.hash` and posts the token to the verify or reset endpoint.
+Links put the token in the URL fragment (`/verify-email#token=…`), so it never appears in a request line, access log, or `Referer` header. The client reads `location.hash` and posts the token.
 
-Message bodies carry single-use verification and reset tokens, so `SMTP_TLS` controls whether the hop is protected: `starttls` requires the relay to upgrade and is the production default, `opportunistic` upgrades when the relay offers it, and `none` sends in clear text. Development defaults to `none` because the local Mailpit has no certificate; a clear-text relay must never carry those links.
+Bodies contain those tokens, so the hop matters: `SMTP_TLS=starttls` refuses a relay that cannot upgrade, `opportunistic` upgrades when offered, `none` sends in clear text. Development defaults to `none` because local Mailpit has no certificate; a clear-text relay must never carry these links.
 
-## Observability
+## Housekeeping
 
-- Structured JSON logs include request method, path, status, duration, bytes, IP, and request ID.
-- Internal errors are logged with the request ID; clients receive a generic detail.
-- Recovered panics increment `kit_user_panics_total` and log a `stack_trace` with the request ID.
-- Audit events record authentication, account, session, and admin actions.
-- Health endpoints support container and load-balancer checks.
+Expired tokens and sessions are dead the moment they expire, but nothing else deletes them. The sweeper runs inside the API process every `RETENTION_INTERVAL` and removes:
 
-### Metrics
+- expired one-time tokens,
+- expired sessions,
+- outbox rows delivered more than `RETENTION_OUTBOX_WINDOW` ago.
 
-`cmd/api` registers a Prometheus registry with the `kit_user` subsystem and serves it at `GET /metrics` on a listener of its own, `METRICS_ADDR`, which defaults to `127.0.0.1:9091`; `off` disables the listener. The API port serves no metrics route, so a scrape never reaches the internet-facing surface. Prometheus collects it with the `kit-user` job every 15 seconds.
+Each table is swept in batches of 1000 with a bounded number of batches per tick, so a large backlog drains over several ticks instead of holding a lock.
+
+Two rows are kept on purpose: a consumed but unexpired token (so replaying it still says "already used") and a revoked but unexpired session (so the sign-out stays visible in account history). Pending outbox rows are never deleted.
+
+`RETENTION_INTERVAL=0` turns the sweep off and production warns at startup, because then nothing removes these rows.
+
+## Metrics
+
+`cmd/api` keeps a Prometheus registry under the `kit_user` namespace and serves it on its own listener, `METRICS_ADDR` (default `127.0.0.1:9091`, `off` disables it). The API port answers `404` for `/metrics`, so a scrape never touches the surface users reach.
 
 | Metric | Type | Labels |
 | --- | --- | --- |
@@ -222,9 +240,9 @@ Message bodies carry single-use verification and reset tokens, so `SMTP_TLS` con
 | `kit_user_http_request_duration_seconds` | histogram | `method`, `path` |
 | `kit_user_panics_total` | counter | none |
 
-The latency histogram uses buckets from 5 ms to 10 s. The `path` label is not the raw request path: `observability.RouteLabel` folds it into `health`, `auth_user`, `auth_session`, `account`, `admin`, `internal`, `metrics`, or `other`, which keeps series cardinality fixed as traffic and identifiers grow.
+Latency buckets run from 5 ms to 10 s. The `path` label is folded into `health`, `auth_user`, `auth_session`, `account`, `admin`, `internal`, `metrics`, or `other`, so series count stays fixed as traffic and identifiers grow.
 
-A panicked request increments `kit_user_panics_total` but not `kit_user_http_requests_total`, because the recoverer wraps the logging middleware and the panic skips its recording. Alert on `kit_user_panics_total` for those requests rather than on error rates alone.
+A panicking request increments `kit_user_panics_total` but not the request counter, because the recoverer sits outside the logging middleware. Alert on panics directly instead of inferring them from status codes.
 
 No tracing exporter is configured yet.
 
@@ -232,52 +250,54 @@ No tracing exporter is configured yet.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `APP_ENV` | `development` | `development`, `test`, or `production`; any other value stops startup. Production requires explicit database and JWT key |
-| `PORT` | `3001` | Listen port |
-| `DATABASE_URL` | local dev URL | Required in production |
+| `APP_ENV` | `development` | `development`, `test`, or `production`; anything else stops startup |
+| `PORT` | `3001` | API port |
+| `METRICS_ADDR` | `127.0.0.1:9091` | Prometheus listener, separate from `PORT`; `off` disables it |
+| `DATABASE_URL` | local development URL | Required in production |
 | `APP_ORIGIN` | `http://localhost:5173` | CORS and origin checks |
-| `PUBLIC_APP_URL` | `http://localhost:5173` | Verification and reset links |
-| `JWT_PRIVATE_KEY` | random in development | Base64 Ed25519 seed or private key |
-| `JWT_KEY_ID` | `dev-1` | Token header key ID |
-| `JWT_ISSUER` | `kit-user` | JWT issuer |
-| `JWT_AUDIENCE` | `kit-api` | JWT audience |
-| `ACCESS_TOKEN_TTL` | `15m` | Must be less than refresh TTL |
-| `REFRESH_TOKEN_TTL` | `720h` | Refresh session lifetime |
-| `COOKIE_SECURE` | true in production | Requires HTTPS when enabled |
+| `PUBLIC_APP_URL` | `http://localhost:5173` | Links in verification and reset email |
+| `JWT_PRIVATE_KEY` | random in development | Base64 Ed25519 seed or private key; required in production |
+| `JWT_KEY_ID` | `dev-1` | Key ID in the token header |
+| `JWT_ISSUER` | `kit-user` | Token issuer |
+| `JWT_AUDIENCE` | `kit-api` | Token audience |
+| `ACCESS_TOKEN_TTL` | `15m` | Must be shorter than the refresh TTL |
+| `REFRESH_TOKEN_TTL` | `720h` | Session lifetime |
+| `COOKIE_SECURE` | true in production | Also the signal that this deployment is HTTPS |
 | `COOKIE_DOMAIN` | empty | Optional cookie domain |
 | `MAILER` | `log` | `log` or `smtp` |
 | `SMTP_ADDR` | `localhost:1025` | SMTP server |
 | `MAIL_FROM` | `no-reply@kit.local` | Envelope sender |
-| `SMTP_TLS` | `none` in development, `starttls` in production | `starttls`, `opportunistic`, or `none`; `starttls` refuses a relay that cannot upgrade |
-| `INTERNAL_SERVICE_TOKEN` | empty | Enables internal authz endpoint |
-| `RATE_LIMIT_ENABLED` | `true` | In-memory rate limiting |
-| `METRICS_ADDR` | `127.0.0.1:9091` | Prometheus listener, separate from `PORT`; `off` disables it |
-| `REVOCATION_REFRESH_INTERVAL` | `5s` | How often replicas reload the revocation snapshot |
-| `RETENTION_INTERVAL` | `1h` | How often the retention sweep deletes dead rows; `0` disables it |
-| `RETENTION_OUTBOX_WINDOW` | `168h` | How long delivered outbox rows are kept for inspection |
-| `LOG_LEVEL` | `info` | debug, info, warn, error |
+| `SMTP_TLS` | `none` in development, `starttls` in production | `starttls`, `opportunistic`, or `none` |
+| `INTERNAL_SERVICE_TOKEN` | empty | Enables the internal permission check |
+| `RATE_LIMIT_ENABLED` | `true` | In-memory limits |
+| `REVOCATION_REFRESH_INTERVAL` | `5s` | How often replicas reload the ban list |
+| `RETENTION_INTERVAL` | `1h` | Cleanup cadence; `0` disables it |
+| `RETENTION_OUTBOX_WINDOW` | `168h` | How long delivered email rows are kept |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `AUTO_MIGRATE` | `false` | Apply migrations at API startup |
 
-From the repository root, generate a key with `go run ./services/user/cmd/keygen` and keep it out of git. Compose reads optional values from the repository-root `.env`.
+Generate a signing key from the repository root with `go run ./services/user/cmd/keygen` and keep `.secrets/` out of git. Compose reads optional values from the repository-root `.env`.
 
-## Deployment notes
+## When something goes wrong
 
-- A ban or forced sign-out lands on the next request through the revocation snapshot; a replica picks up bans written elsewhere within `REVOCATION_REFRESH_INTERVAL`.
-- Internal authorization reflects the account's current status and roles, but permission claims in the clients access token can be up to 15 minutes stale.
-- The refresh cookie is hardcoded to `SameSite=Lax`; this works when app and API are the same site. If app and API are on different registrable domains, add a configurable `SameSite=None; Secure` option first.
-- IP-based rate limits and audit entries use the TCP peer address. Because they do not trust proxy headers yet, either terminate traffic direct at this service or add trusted-proxy handling before deploying behind a load balancer.
-- Outbox email delivery is at least once: a process crash between SMTP send and the successful update can duplicate a message.
-- Retention runs inside the API process every `RETENTION_INTERVAL`: expired one-time tokens, expired sessions, and outbox rows delivered more than `RETENTION_OUTBOX_WINDOW` ago are deleted in batches of 1000, so a backlog drains over several ticks. Revoked sessions are kept until their refresh token expires. `RETENTION_INTERVAL=0` disables the sweep, and production warns at startup.
-- Prometheus must scrape `METRICS_ADDR`, not `PORT`. Bind it to a private interface and leave the API port without a metrics route.
-- Token rotation uses a single Ed25519 key; key rotation requires deploying a new key and letting old access tokens expire.
+| Situation | What happens |
+| --- | --- |
+| Database unreachable at startup | The API refuses to start |
+| Database goes away later | `/readyz` returns `503`; the process stays up |
+| JWT key invalid | The API refuses to start |
+| Email delivery fails | The outbox row stays pending with backoff; the registration or reset still stands |
+| Two refreshes race | The session family is revoked instead of issuing overlapping tokens |
+| Process restarts | Rate limits reset; nothing else is lost |
+| Ban written elsewhere | Visible within `REVOCATION_REFRESH_INTERVAL` |
 
-## Failure behavior
+## Before you deploy
 
-- The API fails to start if the database is unreachable or the JWT key is invalid.
-- `/readyz` returns `503` when the database ping fails.
-- Email delivery failure leaves the outbox row pending with backoff; it does not roll back registration or recovery.
-- Refresh races revoke the session family rather than issuing overlapping tokens.
-- Rate limiting is per process and resets on restart.
+- Bans and forced sign-outs land on the next request, and on other replicas within `REVOCATION_REFRESH_INTERVAL`.
+- Permission claims inside a client's token can be up to 15 minutes stale. Use the internal check when freshness matters.
+- The refresh cookie is hardcoded to `SameSite=Lax`, which works when app and API share a site. On different registrable domains, add a configurable `SameSite=None; Secure` first.
+- Rate limits and audit entries use the TCP peer address, and proxy headers are not trusted. Terminate traffic directly or add trusted-proxy handling before putting a load balancer in front.
+- Prometheus must scrape `METRICS_ADDR`, not `PORT`, over a private network.
+- Token rotation uses a single Ed25519 key. To rotate, deploy a new key and let old access tokens expire.
 
 ## Local operations
 
@@ -287,13 +307,13 @@ npm run migrate:up
 npm run dev:user
 ```
 
-Or run the complete stack:
+Or the full container stack:
 
 ```bash
 docker compose up --build
 ```
 
-Admin CLI examples:
+Admin commands:
 
 ```bash
 go -C services/user run ./cmd/admin list-users
@@ -301,8 +321,8 @@ go -C services/user run ./cmd/admin grant-role <user-id> admin
 go -C services/user run ./cmd/admin set-status <user-id> suspended
 ```
 
-## Related documents
+## Related
 
-- [Plan](../plans/2026-10-27-user-service.md)
+- [Design plan](../plans/2026-10-27-user-service.md)
 - [Contributor guide](../contributor-guides/go-services.md)
 - [Test documentation](../tests-docs/user-service.md)

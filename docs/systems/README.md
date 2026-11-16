@@ -1,48 +1,29 @@
 # Systems
 
-Architecture, ownership, and operational notes for each system in the repository.
+One page per system: what it does, where it lives, and what happens when it fails.
 
-## Current systems
+| System | Location | Runtime | Page |
+| --- | --- | --- | --- |
+| Course app | `client/app` | Browser, React 19 + Vite | [`client-app.md`](client-app.md) |
+| Website | `client/web` | Static, Astro | [`../../client/web/README.md`](../../client/web/README.md) |
+| User service | `services/user` | Go 1.27.4, PostgreSQL 18 | [`user-service.md`](user-service.md) |
+| Typing course rules | `client/app/src` | Runs in the browser | [`learning-path.md`](learning-path.md) |
+| Observability | `services/observability` | Docker Compose | [`observability.md`](observability.md) |
 
-### @kit/app
+Health checks for the user service: `GET /healthz` and `GET /readyz` on port `3001`.
 
-- Location: `client/app`
-- Runtime: browser
-- Stack: React 19, Vite, TypeScript
-- Responsibility: interactive product interface
-- Documentation: [`client-app.md`](client-app.md)
+## Who owns dependencies
 
-### @kit/web
-
-- Location: `client/web`
-- Runtime: static build
-- Stack: Astro 7
-- Responsibility: public website and content
-- Documentation: [`../../client/web/README.md`](../../client/web/README.md)
-
-### User service
-
-- Location: `services/user`
-- Runtime: Go 1.27.4
-- Stack: PostgreSQL 18, pgx, goose, Ed25519 JWT
-- Responsibility: identity, sessions, accounts, roles, audit events
-- Health checks: `GET /healthz`, `GET /readyz` on port `3001`
-- Documentation: [`user-service.md`](user-service.md)
-
-## Dependency ownership
-
-- Client workspaces declare dependencies in their own `package.json`; npm hoists to the root `node_modules` and records versions in `package-lock.json`.
-- The Go service declares dependencies in `services/user/go.mod`; the test module declares its own in `tests/go.mod`.
-- `go.work` ties the service and test modules together for local development.
-- Container images are built from `services/user/Dockerfile` and run the compiled Go binaries.
+- Client workspaces declare their own in `package.json`; npm hoists to the root `node_modules` and records versions in `package-lock.json`.
+- The Go service declares its own in `services/user/go.mod`; the test module in `tests/go.mod`.
+- `go.work` ties the Go modules together for local work.
+- Container images build from `services/user/Dockerfile`.
 
 ## Adding a system
 
-1. Create the system directory with its own manifest and lockfile where applicable.
-2. For a Node workspace, add the directory to `workspaces` in the root `package.json`.
-3. For a Go module, add it to `go.work` and document its module path.
-4. Declare dependencies in that system, not at the repository root.
-5. Add a system document here with runtime, ownership, health checks, and failure behavior.
-6. Add tests in the matching `/tests` category and document commands.
-
-See [`observability.md`](observability.md) for the Prometheus, Grafana, Loki, and Promtail stack.
+1. Create the directory with its own manifest and lockfile.
+2. Node workspace: add it to `workspaces` in the root `package.json`.
+3. Go module: add it to `go.work` and record the module path.
+4. Declare dependencies there, never at the repository root.
+5. Write a page here covering runtime, ownership, health checks, and failure behavior.
+6. Add tests in the matching `/tests` folder and document the commands.

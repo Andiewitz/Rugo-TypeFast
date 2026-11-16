@@ -1,42 +1,37 @@
 # Tests
 
-All automated tests live here, separated by scope. Go integration tests share the `tests/go.mod` module; future client suites add their own runner.
+Every test lives here, split by how much of the system it touches.
 
-| Directory | Purpose |
+| Folder | Answers the question |
 | --- | --- |
-| [`int`](int/) | Integration tests across real boundaries |
-| [`unit`](unit/) | Isolated unit tests |
-| [`e2e`](e2e/) | End-to-end user flows |
-| [`k6`](k6/) | Load, stress, and soak tests |
-| [`failure`](failure/) | Dependency outage and resilience tests |
-| [`security`](security/) | Security behavior and scanning tests |
+| [`unit/`](unit/) | Does one function or component do what it claims? |
+| [`int/`](int/) | Do the HTTP layer and the database work together? |
+| [`e2e/`](e2e/) | Does a real user journey work end to end? |
+| [`k6/`](k6/) | How does it behave under load? |
+| [`failure/`](failure/) | What happens when a dependency dies? |
+| [`security/`](security/) | Can someone get in who should not? |
 
-## Current runners
-
-- Go unit tests live beside the code in `services/user`.
-- Go integration tests live in [`int/user`](int/user/).
-- k6 scripts are opt-in.
-
-## Running tests
+## Run them
 
 ```bash
-npm run test:unit:user   # Go unit tests
-npm run test:int:user    # PostgreSQL-backed HTTP integration tests
-npm run test:user        # all service unit tests
+npm test              # Go unit tests and course tests
+npm run test:ci       # Go unit tests with the race detector
+npm run test:int:user # HTTP and database tests against a scratch database
 ```
 
-Integration tests need PostgreSQL running. The harness creates, migrates, and truncates its own dedicated `_test` database, so no migration step is needed:
+Integration tests need PostgreSQL running:
 
 ```bash
 npm run db:up
 ```
 
-Document tooling decisions and conventions in [`/docs/tests-docs`](../docs/tests-docs/).
+The harness creates its own database, applies migrations, and empties it before each run. It refuses a database whose name does not end in `_test`, so your development data is safe.
 
 ## Rules
 
-- Tests must be deterministic and independent.
-- Do not depend on execution order or shared mutable state.
-- Never commit credentials, tokens, customer data, or production fixtures.
-- Keep load and failure tests opt-in; they should not run in the default fast suite.
-- Reset test data per suite and use a dedicated database for integration runs.
+- A test must pass alone and in any order.
+- Never commit credentials, tokens, or production fixtures.
+- Load and failure tests are opt-in; they never run in the default suite.
+- Every fixed bug gets a test that fails without the fix.
+
+How the suites are organised and what they cover is in [`/docs/tests-docs`](../docs/tests-docs/).

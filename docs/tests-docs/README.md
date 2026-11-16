@@ -1,54 +1,48 @@
-# Test Documentation
+# Test documentation
 
-Test strategy and conventions for the suites in [`/tests`](../../tests/).
+How the suites in [`/tests`](../../tests/) are organised, and what each one is for.
 
-## Layout
+## Which suite do I add a test to?
 
-| Directory | Scope |
+| The change… | Goes in |
 | --- | --- |
-| `tests/unit` | Single functions, components, or modules in isolation |
-| `tests/int` | Integration tests across real boundaries such as HTTP and persistence |
-| `tests/e2e` | Complete user flows through the running applications |
-| `tests/k6` | Load, stress, and soak tests with k6 |
-| `tests/failure` | Dependency outages, crashes, timeouts, and degraded operation |
-| `tests/security` | Authentication, authorization, input handling, secrets, and dependency risk |
+| Is one function, rule, or component | `tests/unit` or beside the code |
+| Crosses HTTP and the database | `tests/int` |
+| Is a full user journey through the running app | `tests/e2e` |
+| Concerns throughput or memory under load | `tests/k6` |
+| Concerns a dependency dying | `tests/failure` |
+| Concerns who can reach what | `tests/security` |
 
-## Current tooling
-
-- Go unit tests: `go test` in `services/user`, files named `*_test.go`.
-- Go integration tests: `tests/int/user`, run from the `typefast/services/user/tests` module against PostgreSQL.
-- Load: k6 scripts in `tests/k6`, opt-in.
-- Client unit tests: Vitest when the client suites are added.
-- End-to-end: Playwright when browser flows are added.
+Go unit tests sit next to the package they test (`*_test.go`), not in `/tests`.
 
 ## Commands
 
 ```bash
-npm run test:unit:user
-npm run test:int:user
-npm run test:user
+npm test              # Go unit tests and course tests
+npm run test:ci       # Go unit tests with the race detector
+npm run test:int:user # HTTP and database tests
+npm run test:lesson   # course rules only
 ```
 
-Integration tests need PostgreSQL running (`npm run db:up`). The harness creates and migrates its own `_test` database and truncates the identity tables, so no separate migration step is needed. Set `TEST_DATABASE_URL` to choose a different scratch database; its name must end in `_test`, and `DATABASE_URL` is ignored.
+Integration tests need PostgreSQL: `npm run db:up`. They create, migrate, and empty their own `_test` database, so no migration step is needed.
 
 ## Conventions
 
-- Name Go tests `*_test.go` and use table tests for validation and error matrices.
-- Name integration targets by system, for example `tests/int/user`.
+- Name Go tests `*_test.go`; use table tests for validation and error cases.
 - Name end-to-end files `<flow>.spec.ts` and load scripts `<scenario>.k6.js`.
-- Every fixed bug should add a regression test.
-- Tests must be deterministic, isolated, and safe to run repeatedly.
-- Use dedicated test credentials and data. Never target production.
-- Keep slow, external, and failure-injection suites separate from the default fast run.
+- Every fixed bug gets a test that fails before the fix.
+- Tests must pass alone and in any order.
+- Use synthetic data and dedicated accounts; never point a suite at production.
+- Keep slow, external, and failure-injection suites out of the default run.
 
-## Per-system documentation
+## Per-system pages
 
-- [User service](user-service.md) - Layers, commands, and covered flows.
-- [Observability](observability.md) - Live stack validation checks.
+- [User service](user-service.md) — layers, commands, covered flows
+- [Observability](observability.md) — live stack checks
 
 ## Adding a suite
 
-1. Choose the directory that matches the scope.
-2. Add the runner and configuration at the root or nearest module.
-3. Add root scripts so one command runs each category.
-4. Update this document and the relevant `tests/*/README.md`.
+1. Pick the folder matching the question the suite answers.
+2. Add the runner and config at the nearest module.
+3. Add a root script so one command runs it.
+4. Update this page and the suite's `README.md`.

@@ -22,7 +22,8 @@ The course is a single ordered path of 13 chapters, five levels each: left-hand 
 
 ## Progress and storage
 
-- Progress, XP, best WPM, activity dates, and daily goal totals live in the browser's local storage under `rugo-progress`. They belong to that browser and origin, are not synced to an account, and a notice appears on the main screen when storage is unavailable.
+- Progress, XP, best WPM, activity dates, and daily goal totals live in browser local storage under `rugo-progress`.
+- That data belongs to one browser and origin and is never synced to an account. When storage is unavailable, the main screen says so.
 - Daily goals reset at the next local calendar day. The league page is informational until an online leaderboard exists.
 - Six-level course progress is archived in `legacyCourse`. Upgrading from the previous three-level chapters keeps original completed levels, stars, unlocks, XP, and records; the newly added fourth and fifth levels in previously unlocked chapters are available but marked uncompleted.
 - Original chapter-course results are archived in `previousCourse` and can be reviewed in Profile.
@@ -31,7 +32,9 @@ The course is a single ordered path of 13 chapters, five levels each: left-hand 
 
 - Opening an exercise from the path or Practice shows a brief full-screen preparation screen, then continues automatically. Retrying from results starts a fresh attempt directly.
 - Lessons use a focused layout; navigation and progress return when the learner goes back to the path.
-- Rugo is a reusable SVG character with independently animated head, eyes, eyebrows, mouth, body, arms, legs, and tail. The path mascot cycles through idle, happy, curious, thinking, surprised, proud, and celebration expressions, walks side-on during preparation, and reacts to results with distinct celebration, surprise, thought, and encouragement shapes. Motion respects reduced-motion settings.
+- Rugo is a reusable SVG character with independently animated head, eyes, eyebrows, mouth, body, arms, legs, and tail.
+- On the path he cycles through idle, happy, curious, thinking, surprised, proud, and celebration expressions, walks side-on during preparation, and reacts to results with distinct celebration, surprise, thought, and encouragement shapes.
+- Motion respects reduced-motion settings.
 - On the learning path Rugo stays visible while scrolling; smaller screens use a compact corner placement with a smaller footprint.
 - Compact screens adapt the learning path, progress panels, keyboard guide, and results to the available width. Lesson and results action bars stay pinned to the bottom of the viewport while content scrolls.
 - The earlier Rive and illustrated experiments are retained as source material and are not used in the app.
