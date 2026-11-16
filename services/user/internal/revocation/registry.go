@@ -39,6 +39,20 @@ type Entry struct {
 	Suspended bool
 }
 
+// Event is one change to the revocation set. It carries the state another
+// replica should hold, never an instruction, so applying it twice is harmless.
+type Event struct {
+	UserID    uuid.UUID `json:"user_id"`
+	Before    time.Time `json:"before"`
+	Suspended bool      `json:"suspended"`
+}
+
+// Publisher broadcasts a change to other replicas. A nil Publisher keeps the
+// registry local, which is what a single-instance deployment needs.
+type Publisher interface {
+	Publish(ctx context.Context, event Event) error
+}
+
 // Source loads the current set of revoked accounts.
 type Source interface {
 	ListRevocations(ctx context.Context) ([]Entry, error)
@@ -46,10 +60,11 @@ type Source interface {
 
 // Registry is a concurrency-safe snapshot of revoked accounts.
 type Registry struct {
-	mu      sync.RWMutex
-	revoked map[uuid.UUID]Entry
-	source  Source
-	logger  *slog.Logger
+	mu        sync.RWMutex
+	revoked   map[uuid.UUID]Entry
+	source    Source
+	publisher Publisher
+	logger    *slog.Logger
 }
 
 // NewRegistry creates an empty registry. Call Refresh before serving traffic so
@@ -89,8 +104,10 @@ func (r *Registry) Refresh(ctx context.Context) error {
 // the next request instead of waiting for the next refresh.
 func (r *Registry) Revoke(userID uuid.UUID, before time.Time) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.revoked[userID] = Entry{UserID: userID, Before: before, Suspended: true}
+	r.mu.Unlock()
+
+	r.publish(Event{UserID: userID, Before: before, Suspended: true})
 }
 
 // MarkIssuedBefore records a cut-off locally without suspending the account, so
@@ -101,8 +118,10 @@ func (r *Registry) MarkIssuedBefore(userID uuid.UUID, before time.Time) {
 		return
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.revoked[userID] = Entry{UserID: userID, Before: before}
+	r.mu.Unlock()
+
+	r.publish(Event{UserID: userID, Before: before})
 }
 
 // Restore lifts a suspension locally, keeping the marker so tokens issued at or
@@ -110,12 +129,66 @@ func (r *Registry) MarkIssuedBefore(userID uuid.UUID, before time.Time) {
 // snapshot entirely.
 func (r *Registry) Restore(userID uuid.UUID, before time.Time) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if before.IsZero() {
 		delete(r.revoked, userID)
+	} else {
+		r.revoked[userID] = Entry{UserID: userID, Before: before}
+	}
+	r.mu.Unlock()
+
+	r.publish(Event{UserID: userID, Before: before})
+}
+
+// SetPublisher attaches a broadcast channel. Call it before serving traffic.
+// A failed publish never fails a ban: storage is the source of truth, and the
+// periodic refresh corrects any replica that missed the message.
+func (r *Registry) SetPublisher(publisher Publisher) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.publisher = publisher
+}
+
+// Apply merges an event received from another replica.
+//
+// Newer markers replace older ones, an older event is ignored, and a tie keeps
+// a suspension: refusing a live session is recoverable, letting a banned one
+// through is not. A reactivation that carries the same marker as the ban is
+// therefore ignored until the next refresh, which is the deliberate trade.
+func (r *Registry) Apply(event Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if current, ok := r.revoked[event.UserID]; ok {
+		if event.Before.Before(current.Before) {
+			return
+		}
+		if event.Before.Equal(current.Before) && current.Suspended && !event.Suspended {
+			return
+		}
+	}
+
+	r.revoked[event.UserID] = Entry{
+		UserID:    event.UserID,
+		Before:    event.Before,
+		Suspended: event.Suspended,
+	}
+}
+
+const publishTimeout = 250 * time.Millisecond
+
+func (r *Registry) publish(event Event) {
+	r.mu.RLock()
+	publisher := r.publisher
+	r.mu.RUnlock()
+	if publisher == nil {
 		return
 	}
-	r.revoked[userID] = Entry{UserID: userID, Before: before}
+
+	ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
+	defer cancel()
+	if err := publisher.Publish(ctx, event); err != nil {
+		r.logger.Warn("revocation broadcast failed", "user_id", event.UserID, "error", err)
+	}
 }
 
 // TokenRevoked reports whether a token issued at issuedAt must be rejected.
