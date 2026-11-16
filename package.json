@@ -25,6 +25,7 @@
     "test:lesson": "node --experimental-strip-types --test tests/lesson-*.test.mjs tests/daily-progress.test.mjs",
     "test:unit:user": "go -C services/user test ./internal/...",
     "test:user": "go -C services/user test ./...",
+    "test:ci": "go -C services/user test -race ./...",
     "test:int": "npm run test:int:user",
     "test:int:user": "go -C tests test ./int/user/...",
     "test:k6": "k6 run tests/k6/user-session.k6.js",
