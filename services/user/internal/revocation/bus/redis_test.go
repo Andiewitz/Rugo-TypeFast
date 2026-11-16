@@ -237,6 +237,62 @@ func TestBanOnOneInstanceReachesAnother(t *testing.T) {
 	t.Fatal("the ban never reached the second instance")
 }
 
+// A lift has to travel the same way as the ban it reverses. If it only reached
+// the instance that wrote it, every other instance would keep refusing fresh
+// logins until its next refresh.
+func TestLiftOnOneInstanceReachesAnother(t *testing.T) {
+	_, server := newTestBus(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	speaker, err := NewRedis("redis://"+server.Addr(), "test:revocations", logger)
+	if err != nil {
+		t.Fatalf("speaker: %v", err)
+	}
+	defer speaker.Close()
+
+	listener, err := NewRedis("redis://"+server.Addr(), "test:revocations", logger)
+	if err != nil {
+		t.Fatalf("listener: %v", err)
+	}
+	defer listener.Close()
+	listener.backoff = time.Millisecond
+
+	remote := revocation.NewRegistry(nil, logger)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go listener.Listen(ctx, remote.Apply, func() {})
+
+	speakerRegistry := revocation.NewRegistry(nil, logger)
+	speakerRegistry.SetPublisher(speaker)
+
+	waitForSubscribers(t, listener)
+
+	userID := uuid.New()
+	banAt := time.Now().UTC()
+	speakerRegistry.Revoke(userID, banAt)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !remote.TokenRevoked(userID, banAt.Add(time.Hour)) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !remote.TokenRevoked(userID, banAt.Add(time.Hour)) {
+		t.Fatal("the ban never reached the second instance")
+	}
+
+	speakerRegistry.Restore(userID, banAt)
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && remote.TokenRevoked(userID, banAt.Add(time.Hour)) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if remote.TokenRevoked(userID, banAt.Add(time.Hour)) {
+		t.Fatal("the lift never reached the second instance")
+	}
+	if !remote.TokenRevoked(userID, banAt.Add(-time.Hour)) {
+		t.Fatal("tokens issued before the ban must stay refused after the lift")
+	}
+}
+
 // waitForSubscribers waits until at least one client is listening, so a
 // publish is not sent before the subscription exists.
 func waitForSubscribers(t *testing.T, client *Redis) {
