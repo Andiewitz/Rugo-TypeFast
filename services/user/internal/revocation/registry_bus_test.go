@@ -161,6 +161,53 @@ func TestApplyKeepsSuspensionOnTie(t *testing.T) {
 	}
 }
 
+// A ban and the lift that follows it share a marker, so the send time is what
+// lets the lift through. Without it a replica holds the ban until its refresh.
+func TestApplyLiftsWhenSendTimeIsNewer(t *testing.T) {
+	userID := uuid.New()
+	banAt := time.Now().UTC()
+	sent := banAt.Add(time.Second)
+
+	registry := revocation.NewRegistry(&fakeSource{}, nil)
+	registry.Apply(revocation.Event{UserID: userID, Before: banAt, Suspended: true, SentAt: sent})
+	registry.Apply(revocation.Event{UserID: userID, Before: banAt, SentAt: sent.Add(time.Second)})
+
+	if registry.TokenRevoked(userID, banAt.Add(time.Hour)) {
+		t.Fatal("a lift sent after the ban must lift the suspension")
+	}
+	if !registry.TokenRevoked(userID, banAt.Add(-time.Minute)) {
+		t.Fatal("tokens issued before the marker must stay refused after a lift")
+	}
+}
+
+func TestApplyIgnoresBanOlderThanLift(t *testing.T) {
+	userID := uuid.New()
+	banAt := time.Now().UTC()
+	liftSent := banAt.Add(2 * time.Second)
+
+	registry := revocation.NewRegistry(&fakeSource{}, nil)
+	registry.Apply(revocation.Event{UserID: userID, Before: banAt, Suspended: true, SentAt: banAt})
+	registry.Apply(revocation.Event{UserID: userID, Before: banAt, SentAt: liftSent})
+	// A late duplicate of the original ban must not re-suspend the account.
+	registry.Apply(revocation.Event{UserID: userID, Before: banAt, Suspended: true, SentAt: banAt})
+
+	if registry.TokenRevoked(userID, banAt.Add(time.Hour)) {
+		t.Fatal("a stale ban must not resurrect a lifted suspension")
+	}
+}
+
+func TestPublishStampsSendTime(t *testing.T) {
+	publisher := &recordingPublisher{}
+	registry := revocation.NewRegistry(&fakeSource{}, nil)
+	registry.SetPublisher(publisher)
+
+	registry.Revoke(uuid.New(), time.Now().UTC())
+
+	if publisher.only(t).SentAt.IsZero() {
+		t.Fatal("published events must carry a send time")
+	}
+}
+
 func TestApplyIsIdempotent(t *testing.T) {
 	userID := uuid.New()
 	banAt := time.Now().UTC()

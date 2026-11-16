@@ -98,6 +98,7 @@ Suspending an account does three things in one transaction: sets `status = 'susp
 
 - Suspension is absolute. Even a token minted after the ban is refused, which is what stops a refresh from restoring access.
 - Reactivating lifts the suspension but keeps the marker, so new tokens work and pre-ban tokens stay dead.
+- A ban and its lift carry the same marker, so replicas order the two by the event's send time. A lift that is not provably newer than the ban it reverses is ignored, and equal times keep the suspension.
 - The replica handling the ban applies it immediately; others reload every `REVOCATION_REFRESH_INTERVAL` (default `5s`).
 - With `REVOCATION_BUS=redis`, replicas also broadcast each change on a Redis channel, so the rest apply it in milliseconds instead of waiting for the next reload. Redis only carries news: if it is down, bans still commit and the timer closes the gap, and no request ever waits on it.
 - The `admin` CLI publishes to the same channel when `REVOCATION_BUS` and `REDIS_URL` are set for its process, so `set-status` from a shell reaches other replicas as fast as a ban from the API. Without those variables it stays local and replicas learn on their next refresh.

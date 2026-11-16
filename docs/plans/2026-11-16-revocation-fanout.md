@@ -73,6 +73,8 @@ safety net: every instance also reloads the full list from PostgreSQL
 | Event lost | Timer corrects it within one interval |
 | Event delivered twice | Harmless; the state is identical |
 | Events arrive out of order | The marker timestamp decides; older loses |
+| A lift carries the ban's marker | The send time decides; equal times keep the ban |
+| A ban is redelivered after its lift | Ignored, because its send time is older |
 | PostgreSQL down | Existing snapshot keeps serving; nothing new is learned |
 
 ## Steelman: gossip instead of a broker
@@ -209,7 +211,7 @@ Cross-instance propagation is covered in `internal/revocation/bus` against an in
 | --- | --- |
 | Redis becomes a hard dependency by accident | Wire it lazily; log and continue on startup failure |
 | A missed message hides a ban | Timer stays, reconnect triggers a full reload |
-| Out-of-order delivery | Monotonic merge rule; suspended wins a tie |
+| Out-of-order delivery | Monotonic merge rule; send time breaks a marker tie and identical times keep the suspension |
 | Two environments sharing one Redis | Configurable channel |
 | Event flood | Bans are rare; no batching needed |
 | Flaky time-based tests | Deadline polling, never fixed sleeps |

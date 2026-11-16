@@ -37,6 +37,11 @@ type Entry struct {
 	// is what makes a ban absolute: a refresh through an external identity
 	// provider cannot mint its way back in.
 	Suspended bool
+
+	// SentAt orders changes that share a marker. A ban and the reactivation
+	// that lifts it carry the same Before, so without this a replica could not
+	// tell the ban from the later lift. Zero means unknown.
+	SentAt time.Time
 }
 
 // Event is one change to the revocation set. It carries the state another
@@ -45,6 +50,7 @@ type Event struct {
 	UserID    uuid.UUID `json:"user_id"`
 	Before    time.Time `json:"before"`
 	Suspended bool      `json:"suspended"`
+	SentAt    time.Time `json:"sent_at,omitempty"`
 }
 
 // Publisher broadcasts a change to other replicas. A nil Publisher keeps the
@@ -104,7 +110,7 @@ func (r *Registry) Refresh(ctx context.Context) error {
 // the next request instead of waiting for the next refresh.
 func (r *Registry) Revoke(userID uuid.UUID, before time.Time) {
 	r.mu.Lock()
-	r.revoked[userID] = Entry{UserID: userID, Before: before, Suspended: true}
+	r.revoked[userID] = Entry{UserID: userID, Before: before, Suspended: true, SentAt: time.Now().UTC()}
 	r.mu.Unlock()
 
 	r.publish(Event{UserID: userID, Before: before, Suspended: true})
@@ -118,7 +124,7 @@ func (r *Registry) MarkIssuedBefore(userID uuid.UUID, before time.Time) {
 		return
 	}
 	r.mu.Lock()
-	r.revoked[userID] = Entry{UserID: userID, Before: before}
+	r.revoked[userID] = Entry{UserID: userID, Before: before, SentAt: time.Now().UTC()}
 	r.mu.Unlock()
 
 	r.publish(Event{UserID: userID, Before: before})
@@ -132,7 +138,7 @@ func (r *Registry) Restore(userID uuid.UUID, before time.Time) {
 	if before.IsZero() {
 		delete(r.revoked, userID)
 	} else {
-		r.revoked[userID] = Entry{UserID: userID, Before: before}
+		r.revoked[userID] = Entry{UserID: userID, Before: before, SentAt: time.Now().UTC()}
 	}
 	r.mu.Unlock()
 
@@ -150,10 +156,10 @@ func (r *Registry) SetPublisher(publisher Publisher) {
 
 // Apply merges an event received from another replica.
 //
-// Newer markers replace older ones, an older event is ignored, and a tie keeps
-// a suspension: refusing a live session is recoverable, letting a banned one
-// through is not. A reactivation that carries the same marker as the ban is
-// therefore ignored until the next refresh, which is the deliberate trade.
+// Newer markers replace older ones and an older event is ignored. A ban and the
+// reactivation that lifts it share a marker, so SentAt decides between them; a
+// lift that is not provably newer is dropped, because refusing a live session
+// is recoverable and letting a banned one through is not.
 func (r *Registry) Apply(event Event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -162,8 +168,17 @@ func (r *Registry) Apply(event Event) {
 		if event.Before.Before(current.Before) {
 			return
 		}
-		if event.Before.Equal(current.Before) && current.Suspended && !event.Suspended {
-			return
+		if event.Before.Equal(current.Before) {
+			if event.SentAt.Before(current.SentAt) {
+				return
+			}
+			if event.SentAt.Equal(current.SentAt) {
+				// Same marker at the same instant: keep the stricter state, so a
+				// payload without a send time can never lift a suspension.
+				if current.Suspended || !event.Suspended {
+					return
+				}
+			}
 		}
 	}
 
@@ -171,6 +186,7 @@ func (r *Registry) Apply(event Event) {
 		UserID:    event.UserID,
 		Before:    event.Before,
 		Suspended: event.Suspended,
+		SentAt:    event.SentAt,
 	}
 }
 
@@ -182,6 +198,10 @@ func (r *Registry) publish(event Event) {
 	r.mu.RUnlock()
 	if publisher == nil {
 		return
+	}
+
+	if event.SentAt.IsZero() {
+		event.SentAt = time.Now().UTC()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
