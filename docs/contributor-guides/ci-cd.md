@@ -52,7 +52,7 @@ Publishing an image is not deploying it. The deploy job it calls still waits for
 
 ## Deploying
 
-One machine runs three containers from [`compose.prod.yaml`](../../compose.prod.yaml): `db`, a one-shot `migrate`, and `user`. Images come from GHCR; the server never builds anything.
+One machine runs three containers from [`compose.prod.yaml`](../../compose.prod.yaml): `db`, a one-shot `migrate`, and `user`, plus `redis` alongside the API. Images come from GHCR; the server never builds anything.
 
 ### One-time server setup
 
@@ -123,6 +123,26 @@ Run **Deploy** from the Actions tab with an `image_tag`, or push a tag and appro
 4. starts the API,
 5. polls `http://127.0.0.1:3001/readyz` for 60 seconds,
 6. records the tag in `.last-good-tag` — or rolls back to the previous tag and exits non-zero.
+
+### Turning on the revocation bus
+
+One API instance is enough until you run a second one. A single instance polls the database for bans, which costs nothing extra. With two or more, Redis carries each ban to the other instances immediately instead of leaving them to their next poll.
+
+`compose.prod.yaml` already includes the `redis` container: internal only, no published port, persistence off. It carries news, never truth, so losing its contents only means an instance falls back to polling.
+
+To switch the bus on, add these to `.env.production` and deploy again:
+
+```bash
+REVOCATION_BUS=redis
+REDIS_URL=redis://redis:6379/0
+REVOCATION_CHANNEL=kit:revocations
+```
+
+`scripts/deploy.sh` starts `redis` with the API, so there is no separate step. If the bus is set to `redis` without `REDIS_URL`, the API refuses to start and says so.
+
+Confirmation is in the logs: startup prints `revocation bus enabled` with the channel, a publish that cannot reach Redis prints `revocation broadcast failed` and still commits the ban, and a dropped subscription prints `revocation bus interrupted`. All three keep polling in place, so a broken bus slows propagation and nothing else.
+
+Bans written with the `admin` CLI on the server do not go through the bus; they reach other instances on the next poll.
 
 ### Rolling back
 

@@ -34,13 +34,13 @@ fi
 export IMAGE_TAG
 
 echo "pulling the image"
-compose pull --quiet user migrate
+compose pull --quiet user migrate redis
 
 echo "applying migrations"
 compose run --rm migrate up
 
 echo "starting the API"
-compose up -d --no-deps user
+compose up -d --no-deps user redis
 
 echo "waiting for ${HEALTH_URL}"
 deadline=$(( $(date +%s) + HEALTH_TIMEOUT ))
@@ -51,7 +51,7 @@ until curl -fsS "$HEALTH_URL" > /dev/null; do
     [ -f "$STATE_FILE" ] && previous="$(cat "$STATE_FILE")"
     if [ -n "$previous" ] && [ "$previous" != "$IMAGE_TAG" ]; then
       echo "rolling back to ${previous}" >&2
-      IMAGE_TAG="$previous" compose up -d --no-deps user
+      IMAGE_TAG="$previous" compose up -d --no-deps user redis
       if curl -fsS "$HEALTH_URL" > /dev/null; then
         echo "rollback to ${previous} is healthy" >&2
       else

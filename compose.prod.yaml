@@ -20,6 +20,19 @@ services:
       timeout: 5s
       retries: 20
 
+  # Carries revocation news between the API and any future instance. It holds
+  # nothing durable, so persistence is off and the whole dataset may be evicted:
+  # a miss only means an instance waits for its next refresh.
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   migrate:
     image: ghcr.io/andiewitz/type-fast-user:${IMAGE_TAG:?set IMAGE_TAG}
     entrypoint: ["/app/migrate"]
@@ -41,10 +54,15 @@ services:
       PORT: "3001"
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
       METRICS_ADDR: 127.0.0.1:9091
+      REVOCATION_BUS: ${REVOCATION_BUS:-none}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REVOCATION_CHANNEL: ${REVOCATION_CHANNEL:-kit:revocations}
     ports:
       - "127.0.0.1:3001:3001"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:
