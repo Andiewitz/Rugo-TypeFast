@@ -17,5 +17,6 @@ Use this directory for design and implementation plans before significant work b
 ## Current plans
 
 - [User service](2026-10-27-user-service.md) - registration, login, accounts, authorization
+- [Share the ban list across servers](2026-11-16-revocation-fanout.md) - Redis as a messenger, PostgreSQL as the truth
 
 Start from [`_template.md`](_template.md). Update the plan as decisions change rather than creating parallel documents.
