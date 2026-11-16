@@ -45,12 +45,16 @@ See [Go services](go-services.md) for toolchain, migrations, key generation, adm
 
 ## Before opening a pull request
 
+CI runs these checks on every pull request, so run them locally first:
+
 ```bash
 npm run typecheck
 npm run lint
 npm run build
 npm run test:user
 ```
+
+The pipeline, required checks, releases, and the single-VM deploy are described in [CI/CD](ci-cd.md).
 
 Integration tests require PostgreSQL:
 
