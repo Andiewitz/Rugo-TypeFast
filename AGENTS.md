@@ -1,4 +1,4 @@
-# Type Fast Agent Workflow
+# Rugo agent workflow
 
 All agents should operate the kit the same way.
 

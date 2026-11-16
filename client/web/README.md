@@ -1,6 +1,6 @@
 # @kit/web
 
-Astro site for Type Fast.
+Astro site for Rugo.
 
 ## Development
 

@@ -226,7 +226,7 @@
   ],
   "refresh": "30s",
   "schemaVersion": 40,
-  "tags": ["type-fast", "user-service", "observability"],
+  "tags": ["rugo", "user-service", "observability"],
   "templating": {
     "list": []
   },
