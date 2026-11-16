@@ -71,3 +71,7 @@ Renaming the last two would touch running systems — database, cookies, token c
 - [`docs/systems/user-service.md`](docs/systems/user-service.md) — how accounts and sessions work
 - [`docs/contributor-guides/ci-cd.md`](docs/contributor-guides/ci-cd.md) — tests, releases, and deploys
 - [`AGENTS.md`](AGENTS.md) — house rules for changes
+
+## License and security
+
+MIT, see [`LICENSE`](LICENSE). Found a security problem? Report it privately per [`SECURITY.md`](SECURITY.md) — not in a public issue.

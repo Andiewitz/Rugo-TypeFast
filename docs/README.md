@@ -15,6 +15,7 @@ Find the task you are doing. Every page here answers one question.
 | Get my change merged | [`contributor-guides/README.md`](contributor-guides/README.md) |
 | Cut a release or deploy | [`contributor-guides/ci-cd.md`](contributor-guides/ci-cd.md) |
 | Work on the Go service day to day | [`contributor-guides/go-services.md`](contributor-guides/go-services.md) |
+| Report a security problem | [`../SECURITY.md`](../SECURITY.md) |
 
 ## Other folders
 
