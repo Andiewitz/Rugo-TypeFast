@@ -39,6 +39,9 @@ type Config struct {
 	SMTPTLS               string
 	InternalToken         string
 	RateLimit             bool
+	RevocationBus         string
+	RedisURL              string
+	RevocationChannel     string
 	LogLevel              slog.Level
 	AutoMigrate           bool
 	RevocationRefresh     time.Duration
@@ -127,6 +130,21 @@ func Load() (Config, error) {
 	cfg.AutoMigrate, err = boolEnv("AUTO_MIGRATE", false)
 	if err != nil {
 		return Config{}, err
+	}
+
+	// Redis only carries news of a ban; PostgreSQL stays the source of truth,
+	// so "none" is a complete configuration for a single instance.
+	cfg.RevocationBus = strings.ToLower(strings.TrimSpace(getenv("REVOCATION_BUS", "none")))
+	cfg.RedisURL = strings.TrimSpace(os.Getenv("REDIS_URL"))
+	cfg.RevocationChannel = getenv("REVOCATION_CHANNEL", "kit:revocations")
+	switch cfg.RevocationBus {
+	case "none":
+	case "redis":
+		if cfg.RedisURL == "" {
+			return Config{}, errors.New("REDIS_URL is required when REVOCATION_BUS is redis")
+		}
+	default:
+		return Config{}, fmt.Errorf("REVOCATION_BUS must be none or redis, got %q", cfg.RevocationBus)
 	}
 
 	cfg.RevocationRefresh, err = durationEnv("REVOCATION_REFRESH_INTERVAL", 5*time.Second)

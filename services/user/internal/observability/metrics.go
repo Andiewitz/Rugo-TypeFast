@@ -8,5 +8,6 @@ import (
 type Metrics interface {
 	ObserveHTTP(method string, path string, status int, elapsed time.Duration)
 	AddPanic()
+	AddRevocationEvent(result string)
 	Handler() http.Handler
 }

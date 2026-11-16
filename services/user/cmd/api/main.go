@@ -23,6 +23,7 @@ import (
 	"typefast/services/user/internal/register"
 	"typefast/services/user/internal/retention"
 	"typefast/services/user/internal/revocation"
+	"typefast/services/user/internal/revocation/bus"
 	"typefast/services/user/internal/session"
 	"typefast/services/user/internal/storage/migrations"
 	"typefast/services/user/internal/storage/postgres"
@@ -94,6 +95,27 @@ func run() error {
 	}
 	go revocations.Run(ctx, cfg.RevocationRefresh)
 
+	metrics := observability.NewPrometheus()
+
+	// The bus only makes bans travel faster. Storage is still the truth, so a
+	// broker that is down delays propagation and nothing else.
+	if cfg.RevocationBus == "redis" {
+		redisBus, err := bus.NewRedis(cfg.RedisURL, cfg.RevocationChannel, logger)
+		if err != nil {
+			logger.Warn("revocation bus disabled", "error", err)
+		} else {
+			defer redisBus.Close()
+			redisBus.SetMetrics(metrics)
+			revocations.SetPublisher(redisBus)
+			go redisBus.Listen(ctx, revocations.Apply, func() {
+				if err := revocations.Refresh(ctx); err != nil {
+					logger.Warn("revocation reload after bus gap failed", "error", err)
+				}
+			})
+			logger.Info("revocation bus enabled", "channel", cfg.RevocationChannel)
+		}
+	}
+
 	tokens, err := session.NewTokenManager(cfg.JWTPrivateKey, cfg.JWTKeyID, cfg.JWTIssuer, cfg.JWTAudience, cfg.AccessTTL)
 	if err != nil {
 		return err
@@ -133,7 +155,6 @@ func run() error {
 		logger.Warn("RETENTION_INTERVAL is 0; expired tokens, expired sessions, and delivered outbox rows will accumulate")
 	}
 
-	metrics := observability.NewPrometheus()
 	server := httpapi.New(
 		cfg,
 		logger,

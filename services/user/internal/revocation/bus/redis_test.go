@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -141,6 +142,99 @@ func TestNewRedisValidatesInput(t *testing.T) {
 	if _, err := NewRedis("://broken", "channel", nil); err == nil {
 		t.Fatal("an unparsable url must fail")
 	}
+}
+
+type countingMetrics struct {
+	mu      sync.Mutex
+	results map[string]int
+}
+
+func (m *countingMetrics) AddRevocationEvent(result string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.results == nil {
+		m.results = map[string]int{}
+	}
+	m.results[result]++
+}
+
+func (m *countingMetrics) count(result string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.results[result]
+}
+
+func TestBusRecordsOutcomes(t *testing.T) {
+	client, _ := newTestBus(t)
+	metrics := &countingMetrics{}
+	client.SetMetrics(metrics)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	received := make(chan revocation.Event, 1)
+	go client.Listen(ctx, func(event revocation.Event) { received <- event }, func() {})
+	waitForSubscribers(t, client)
+
+	if err := client.Publish(ctx, revocation.Event{UserID: uuid.New(), Before: time.Now().UTC()}); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	select {
+	case <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("event was not delivered")
+	}
+
+	if metrics.count("published") != 1 {
+		t.Fatalf("published = %d, want 1", metrics.count("published"))
+	}
+	if metrics.count("received") != 1 {
+		t.Fatalf("received = %d, want 1", metrics.count("received"))
+	}
+}
+
+// Two instances, one bus: a ban on one must be enforced by the other without
+// waiting for its refresh timer.
+func TestBanOnOneInstanceReachesAnother(t *testing.T) {
+	_, server := newTestBus(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	speaker, err := NewRedis("redis://"+server.Addr(), "test:revocations", logger)
+	if err != nil {
+		t.Fatalf("speaker: %v", err)
+	}
+	defer speaker.Close()
+
+	listener, err := NewRedis("redis://"+server.Addr(), "test:revocations", logger)
+	if err != nil {
+		t.Fatalf("listener: %v", err)
+	}
+	defer listener.Close()
+	listener.backoff = time.Millisecond
+
+	remote := revocation.NewRegistry(nil, logger)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go listener.Listen(ctx, remote.Apply, func() {})
+
+	speakerRegistry := revocation.NewRegistry(nil, logger)
+	speakerRegistry.SetPublisher(speaker)
+
+	waitForSubscribers(t, listener)
+
+	userID := uuid.New()
+	banAt := time.Now().UTC()
+	speakerRegistry.Revoke(userID, banAt)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if remote.TokenRevoked(userID, banAt.Add(time.Hour)) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the ban never reached the second instance")
 }
 
 // waitForSubscribers waits until at least one client is listening, so a

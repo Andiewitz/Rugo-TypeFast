@@ -47,6 +47,24 @@ npm run dev:user
 
 API on http://localhost:3001, Mailpit on http://localhost:8025. The container stack is `docker compose up --build`, where the `migrate` service must finish before `user` starts.
 
+## Run two instances with the bus
+
+Bans normally reach other instances on the refresh timer. To watch them travel immediately, start Redis and two APIs against the same database:
+
+```bash
+docker compose --profile bus up -d redis
+
+REVOCATION_BUS=redis REDIS_URL=redis://localhost:6379/0 \
+  REVOCATION_REFRESH_INTERVAL=5m PORT=3001 npm run dev:user
+
+REVOCATION_BUS=redis REDIS_URL=redis://localhost:6379/0 \
+  REVOCATION_REFRESH_INTERVAL=5m PORT=3002 npm run dev:user
+```
+
+Sign in through `:3001`, suspend that account with the admin CLI, then call `/v1/account` on `:3002` with the same access token. It must answer `401 token_revoked` immediately. The refresh interval is set to five minutes on purpose: a pass cannot come from the timer.
+
+`kit_user_revocation_events_total{result=…}` on `:9091/metrics` counts `published`, `received`, `failed`, `malformed`, and `gap`, so a quiet broker is visible.
+
 ## Database and migrations
 
 Migrations are SQL files in `services/user/internal/storage/migrations`, embedded in the binary, and run by goose. They look like this:

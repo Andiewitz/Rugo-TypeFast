@@ -99,6 +99,8 @@ Suspending an account does three things in one transaction: sets `status = 'susp
 - Suspension is absolute. Even a token minted after the ban is refused, which is what stops a refresh from restoring access.
 - Reactivating lifts the suspension but keeps the marker, so new tokens work and pre-ban tokens stay dead.
 - The replica handling the ban applies it immediately; others reload every `REVOCATION_REFRESH_INTERVAL` (default `5s`).
+- With `REVOCATION_BUS=redis`, replicas also broadcast each change on a Redis channel, so the rest apply it in milliseconds instead of waiting for the next reload. Redis only carries news: if it is down, bans still commit and the timer closes the gap, and no request ever waits on it.
+- A ban written by the `admin` CLI bypasses the bus, because the CLI is a separate process. Other replicas learn about it on their next refresh.
 - The check is a map lookup, so it adds no database load and grows with banned accounts, not users.
 - Issued-at times have one-second resolution, so a token minted in the same second as a ban is allowed. The window is under a second, and the trade is deliberate: never lock out someone who just signed in.
 - A failed refresh keeps the previous snapshot, so a database hiccup cannot quietly un-ban anyone. A failed first load stops startup.
@@ -271,6 +273,9 @@ No tracing exporter is configured yet.
 | `INTERNAL_SERVICE_TOKEN` | empty | Enables the internal permission check |
 | `RATE_LIMIT_ENABLED` | `true` | In-memory limits |
 | `REVOCATION_REFRESH_INTERVAL` | `5s` | How often replicas reload the ban list |
+| `REVOCATION_BUS` | `none` | `none` keeps bans local; `redis` shares them between instances |
+| `REDIS_URL` | empty | Required when the bus is `redis` |
+| `REVOCATION_CHANNEL` | `kit:revocations` | Channel name, so two environments can share one Redis |
 | `RETENTION_INTERVAL` | `1h` | Cleanup cadence; `0` disables it |
 | `RETENTION_OUTBOX_WINDOW` | `168h` | How long delivered email rows are kept |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
@@ -288,7 +293,8 @@ Generate a signing key from the repository root with `go run ./services/user/cmd
 | Email delivery fails | The outbox row stays pending with backoff; the registration or reset still stands |
 | Two refreshes race | The session family is revoked instead of issuing overlapping tokens |
 | Process restarts | Rate limits reset; nothing else is lost |
-| Ban written elsewhere | Visible within `REVOCATION_REFRESH_INTERVAL` |
+| Ban written elsewhere | Visible within `REVOCATION_REFRESH_INTERVAL`, or at once with the bus |
+| Redis unreachable (bus on) | The ban commits and applies locally; other replicas catch up on the next reload |
 
 ## Before you deploy
 

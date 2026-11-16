@@ -18,11 +18,18 @@ import (
 	"typefast/services/user/internal/revocation"
 )
 
+// Metrics counts what the bus does, so a broker that has gone quiet is
+// visible instead of only being felt as slow ban propagation.
+type Metrics interface {
+	AddRevocationEvent(result string)
+}
+
 // Redis publishes and receives revocation events on one channel.
 type Redis struct {
 	client  *redis.Client
 	channel string
 	logger  *slog.Logger
+	metrics Metrics
 	backoff time.Duration
 }
 
@@ -52,6 +59,11 @@ func NewRedis(url, channel string, logger *slog.Logger) (*Redis, error) {
 	}, nil
 }
 
+// SetMetrics records bus outcomes. A nil value records nothing.
+func (r *Redis) SetMetrics(metrics Metrics) {
+	r.metrics = metrics
+}
+
 // Close releases the connection.
 func (r *Redis) Close() error {
 	return r.client.Close()
@@ -66,8 +78,10 @@ func (r *Redis) Publish(ctx context.Context, event revocation.Event) error {
 	}
 
 	if err := r.client.Publish(ctx, r.channel, payload).Err(); err != nil {
+		r.record("failed")
 		return fmt.Errorf("bus: publish: %w", err)
 	}
+	r.record("published")
 	return nil
 }
 
@@ -101,8 +115,10 @@ func (r *Redis) Listen(ctx context.Context, onEvent func(revocation.Event), onGa
 			var event revocation.Event
 			if err := json.Unmarshal([]byte(message.Payload), &event); err != nil {
 				r.logger.Warn("revocation event ignored", "error", err)
+				r.record("malformed")
 				continue
 			}
+			r.record("received")
 			onEvent(event)
 		}
 	}
@@ -110,7 +126,14 @@ func (r *Redis) Listen(ctx context.Context, onEvent func(revocation.Event), onGa
 
 // wait logs the failure, reports the gap, and sleeps before reconnecting. It
 // returns false when the context ended while waiting.
+func (r *Redis) record(result string) {
+	if r.metrics != nil {
+		r.metrics.AddRevocationEvent(result)
+	}
+}
+
 func (r *Redis) wait(ctx context.Context, action string, err error, onGap func()) bool {
+	r.record("gap")
 	r.logger.Warn("revocation bus interrupted", "action", action, "error", err)
 	onGap()
 

@@ -40,7 +40,7 @@ go -C tests test ./int/user/... -count=1
 - **Rules**: registration, recovery, login outcomes, authorization, account updates.
 - **Delivery**: outbox send, retry, and backoff.
 - **HTTP**: JSON decoding, CORS, security headers, request IDs, origin checks, rate limits, problem responses.
-- **Runtime behavior**: the revocation snapshot, the retention sweep, email link shape, the metrics listeners, and configuration defaults.
+- **Runtime behavior**: the revocation snapshot and its event merge rules, the Redis bus (round trip, reconnect gap, malformed payload), the retention sweep, email link shape, the metrics listeners, and configuration defaults.
 
 ## Integration coverage
 

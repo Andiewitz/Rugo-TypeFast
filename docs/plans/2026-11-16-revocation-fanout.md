@@ -1,6 +1,6 @@
 # Plan: share the ban list across servers
 
-- Status: approved — build before running a second API instance
+- Status: implemented — set `REVOCATION_BUS=redis` before running a second API instance
 - Owner: engineering
 - Created: 2026-11-16
 - Target: first multi-instance deployment
@@ -193,6 +193,8 @@ Update `docs/systems/user-service.md`: the ban section, the configuration table,
 | Manual | Two API processes, real Redis, admin ban | Second process returns `401 token_revoked` |
 
 Sleep-free where possible: use a poll-until-true helper with a deadline instead of `time.Sleep` in the propagation tests.
+
+Cross-instance propagation is covered in `internal/revocation/bus` against an in-process Redis, so `tests/int/user` does not repeat it with a third dependency.
 
 ## Acceptance
 

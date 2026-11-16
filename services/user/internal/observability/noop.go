@@ -13,4 +13,5 @@ func NewNoopMetrics() Metrics {
 
 func (NoopMetrics) ObserveHTTP(string, string, int, time.Duration) {}
 func (NoopMetrics) AddPanic()                                      {}
+func (NoopMetrics) AddRevocationEvent(string)                      {}
 func (NoopMetrics) Handler() http.Handler                          { return http.NotFoundHandler() }

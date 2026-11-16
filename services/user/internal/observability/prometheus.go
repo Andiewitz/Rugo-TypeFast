@@ -14,6 +14,7 @@ type prometheusMetrics struct {
 	httpRequestsTotal   *prometheus.CounterVec
 	httpRequestDuration *prometheus.HistogramVec
 	panicsTotal         prometheus.Counter
+	revocationEvents    *prometheus.CounterVec
 }
 
 func NewPrometheus() Metrics {
@@ -45,14 +46,31 @@ func NewPrometheus() Metrics {
 		},
 	)
 
+	revocationEvents := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "kit",
+			Subsystem: "user",
+			Name:      "revocation_events_total",
+			Help:      "Revocation bus events handled, by outcome.",
+		},
+		[]string{"result"},
+	)
+
+	// Create the known outcomes up front so the family is present at zero
+	// instead of appearing only after the first event.
+	for _, result := range []string{"published", "received", "failed", "malformed", "gap"} {
+		revocationEvents.WithLabelValues(result)
+	}
+
 	registry := prometheus.NewRegistry()
-	registry.MustRegister(httpRequestsTotal, httpRequestDuration, panicsTotal)
+	registry.MustRegister(httpRequestsTotal, httpRequestDuration, panicsTotal, revocationEvents)
 
 	return &prometheusMetrics{
 		registry:            registry,
 		httpRequestsTotal:   httpRequestsTotal,
 		httpRequestDuration: httpRequestDuration,
 		panicsTotal:         panicsTotal,
+		revocationEvents:    revocationEvents,
 	}
 }
 
@@ -64,6 +82,10 @@ func (m *prometheusMetrics) ObserveHTTP(method string, path string, status int, 
 
 func (m *prometheusMetrics) AddPanic() {
 	m.panicsTotal.Inc()
+}
+
+func (m *prometheusMetrics) AddRevocationEvent(result string) {
+	m.revocationEvents.WithLabelValues(result).Inc()
 }
 
 func (m *prometheusMetrics) Handler() http.Handler {

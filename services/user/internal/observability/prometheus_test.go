@@ -38,6 +38,7 @@ func TestPrometheusMetricsHandler(t *testing.T) {
 		"kit_user_http_requests_total{method=\"GET\",path=\"auth_session\",status=\"200\"}",
 		"kit_user_http_requests_total{method=\"GET\",path=\"auth_session\",status=\"500\"}",
 		"kit_user_panics_total",
+		"kit_user_revocation_events_total",
 	}
 	for _, needle := range expected {
 		if !strings.Contains(text, needle) {

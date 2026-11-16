@@ -16,6 +16,7 @@ var envKeys = []string{
 	"ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "COOKIE_SECURE", "COOKIE_DOMAIN",
 	"MAILER", "SMTP_ADDR", "MAIL_FROM", "SMTP_TLS", "INTERNAL_SERVICE_TOKEN",
 	"RATE_LIMIT_ENABLED", "AUTO_MIGRATE", "LOG_LEVEL", "METRICS_ADDR",
+	"REVOCATION_BUS", "REDIS_URL", "REVOCATION_CHANNEL",
 	"REVOCATION_REFRESH_INTERVAL", "RETENTION_INTERVAL", "RETENTION_OUTBOX_WINDOW",
 }
 
@@ -53,6 +54,39 @@ func TestLoadDevelopmentDefaults(t *testing.T) {
 	}
 	if cfg.MetricsAddr != "127.0.0.1:9091" {
 		t.Fatalf("metrics addr = %q", cfg.MetricsAddr)
+	}
+	if cfg.RevocationBus != "none" {
+		t.Fatalf("revocation bus = %q, want none", cfg.RevocationBus)
+	}
+	if cfg.RevocationChannel != "kit:revocations" {
+		t.Fatalf("revocation channel = %q", cfg.RevocationChannel)
+	}
+}
+
+func TestLoadRevocationBusNeedsRedisURL(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("REVOCATION_BUS", "redis")
+
+	if _, err := config.Load(); err == nil {
+		t.Fatal("expected an error when the bus is redis and REDIS_URL is empty")
+	}
+
+	t.Setenv("REDIS_URL", "redis://localhost:6379/0")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.RevocationBus != "redis" {
+		t.Fatalf("revocation bus = %q", cfg.RevocationBus)
+	}
+}
+
+func TestLoadRejectsUnknownRevocationBus(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("REVOCATION_BUS", "kafka")
+
+	if _, err := config.Load(); err == nil {
+		t.Fatal("expected an error for an unknown bus type")
 	}
 }
 
